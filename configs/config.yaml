@@ -1,0 +1,35 @@
+# Single source of truth for modeling decisions. Change here, not in code.
+project:
+  name: player-value-forecaster
+  seed: 42
+
+panel:
+  anchor_month_day: "07-01"        # OPEN DECISION: season start snapshot date
+  min_anchor_season: 2012          # appearances table starts July 2012
+  max_value_staleness_days: 365    # drop anchors whose latest value is older than this
+  leagues: []                      # OPEN DECISION: empty means every tracked domestic league
+
+target:
+  horizons: [1, 2, 3]              # seasons ahead
+  transform: log_ratio             # log(value_{t+h} / value_t)
+
+model:
+  quantiles: [0.1, 0.5, 0.9]
+  families:
+    trained_from_scratch: lightgbm
+    off_the_shelf: chronos         # OPEN DECISION: second rubric model type
+
+split:
+  # Seasons are anchor years. Test anchors must leave room for the horizon.
+  train_last_season: 2020
+  val_season: 2021
+  test_seasons: [2022, 2023, 2024, 2025]
+  values_available_until: "2026-06-12"
+
+paths:
+  raw_player_scores: data/raw/player-scores
+  raw_football_datasets: data/raw/football-datasets
+  manual: data/manual
+  synthetic: data/synthetic
+  processed: data/processed
+  bundle: app/predictions
