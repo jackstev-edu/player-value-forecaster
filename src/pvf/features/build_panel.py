@@ -46,7 +46,10 @@ def anchor_population(tables: dict[str, pd.DataFrame], cfg: dict,
         pop["anchor_date"] = pd.Timestamp(f"{year}-{p['anchor_month_day']}")
         frames.append(pop)
 
-    return pd.concat(frames, ignore_index=True)
+    out = pd.concat(frames, ignore_index=True)
+    # A date-only Timestamp is datetime64[s] in pandas 2, but the parsed parquet is [ns]
+    out["anchor_date"] = out["anchor_date"].astype("datetime64[ns]")
+    return out
 
 
 def value_asof(valuations: pd.DataFrame, anchors: pd.DataFrame,
@@ -54,6 +57,10 @@ def value_asof(valuations: pd.DataFrame, anchors: pd.DataFrame,
     """Attach the latest market value on or before each anchor date."""
     v = valuations[["player_id", "date", "market_value_in_eur"]].sort_values("date")
     a = anchors.sort_values(date_col)
+    # merge_asof refuses to join datetime64[s] against datetime64[ns], and pandas 2 hands
+    # out either depending on how the column was built, so pin both sides first
+    v["date"] = v["date"].astype("datetime64[ns]")
+    a[date_col] = a[date_col].astype("datetime64[ns]")
     # Backward asof join means only past values are visible
     out = pd.merge_asof(a, v, left_on=date_col, right_on="date", by="player_id",
                         direction="backward")

@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from pvf.features.build_panel import add_player_features, anchor_population
+from pvf.features.build_panel import add_player_features, anchor_population, value_asof
 
 
 def _players():
@@ -99,3 +99,27 @@ def test_population_anchors_on_1_july_of_the_season_after():
 def test_population_is_one_row_per_player_per_anchor():
     pop = anchor_population(_tables(), _cfg(), last_anchor_season=2020)
     assert not pop.duplicated(["player_id", "anchor_date"]).any()
+
+
+def test_anchor_dates_are_nanosecond_resolution():
+    # pd.Timestamp("2020-07-01") is datetime64[s] in pandas 2, while to_datetime on the
+    # parquet gives [ns]. merge_asof refuses to join across resolutions, so value_asof
+    # blows up on real data while passing tests that build both sides the same way.
+    pop = anchor_population(_tables(), _cfg(), last_anchor_season=2020)
+    assert pop["anchor_date"].dtype == "datetime64[ns]"
+
+
+def test_value_asof_joins_anchors_of_any_datetime_resolution():
+    valuations = pd.DataFrame({
+        "player_id": [1],
+        "date": pd.to_datetime(["2020-01-01"]),
+        "market_value_in_eur": [1e6],
+    })
+    anchors = pd.DataFrame({
+        "player_id": [1],
+        "anchor_date": pd.Series([pd.Timestamp("2020-07-01")]).astype("datetime64[s]"),
+    })
+
+    out = value_asof(valuations, anchors)
+
+    assert out["value_eur"].iloc[0] == 1e6
