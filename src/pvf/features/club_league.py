@@ -86,10 +86,15 @@ def player_club_season(game_lineups: pd.DataFrame, appearances: pd.DataFrame,
               .agg(played_games=("game_id", "size"), minutes=("minutes_played", "sum")))
 
     out = squads.merge(played, on=_KEYS, how="outer")
-    # Seasons before game_lineups exists have no squad row, so fall back to appearances
-    out["squad_games"] = out["squad_games"].fillna(out["played_games"]).fillna(0).astype(int)
     out["played_games"] = out["played_games"].fillna(0).astype(int)
     out["minutes"] = out["minutes"].fillna(0).astype(int)
+    # Playing implies being in the squad, so appearances set the floor. One rule covers
+    # both season 2012, where game_lineups does not exist at all, and the individual
+    # games it simply misses: 1,010 player-club-seasons in the real data have more
+    # appearances than lineup entries.
+    out["squad_games"] = (out["squad_games"].fillna(0)
+                          .clip(lower=out["played_games"])
+                          .astype(int))
 
     # club_id breaks ties so the choice is deterministic across runs
     out = out.sort_values(["player_id", "season", "squad_games", "minutes", "club_id"],

@@ -85,6 +85,27 @@ def test_season_without_lineups_falls_back_to_appearances():
     assert out.iloc[0].minutes == 90
 
 
+def test_squad_games_never_undercounts_games_actually_played():
+    # game_lineups is missing rows for some games: 1,010 player-club-seasons in the real
+    # data have more appearances than lineup entries. Playing implies being in the squad.
+    games = pd.DataFrame({
+        "game_id": [1, 2], "competition_id": ["GB1", "GB1"], "season": [2019, 2019],
+        "home_club_id": [10, 10], "away_club_id": [20, 20],
+    })
+    lineups = pd.DataFrame({
+        "game_id": [1], "player_id": [1], "club_id": [10], "type": ["starting_lineup"],
+    })
+    apps = pd.DataFrame({
+        "game_id": [1, 2], "player_id": [1, 1], "player_club_id": [10, 10],
+        "minutes_played": [90, 90],
+    })
+
+    out = player_club_season(lineups, apps, games)
+
+    assert out.iloc[0].played_games == 2
+    assert out.iloc[0].squad_games == 2
+
+
 def test_mid_season_transfer_keeps_both_clubs_and_marks_the_busier_one_primary():
     games = pd.DataFrame({
         "game_id": [1, 2, 3], "competition_id": ["GB1"] * 3, "season": [2019] * 3,
