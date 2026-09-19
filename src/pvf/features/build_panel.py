@@ -6,10 +6,47 @@ for every horizon in the config.
 import numpy as np
 import pandas as pd
 
+from pvf.features.club_league import (
+    club_domestic_league,
+    player_club_season,
+    players_at_anchor,
+)
+
+# Allowlist, not a blocklist: anything not named here stays out of the panel, so a new
+# snapshot column in players/ cannot leak in by being forgotten. See features/leakage.py.
+PLAYER_FEATURE_COLUMNS = [
+    "player_id", "date_of_birth", "position", "sub_position", "foot",
+    "height_in_cm", "country_of_citizenship",
+]
+
 
 def anchor_dates(first_season: int, last_season: int, month_day: str) -> pd.DatetimeIndex:
-    """One anchor per season, e.g. 2012-07-01 through 2025-07-01."""
+    """One anchor per season, e.g. 2013-07-01 through 2025-07-01."""
     return pd.to_datetime([f"{y}-{month_day}" for y in range(first_season, last_season + 1)])
+
+
+def anchor_population(tables: dict[str, pd.DataFrame], cfg: dict,
+                      last_anchor_season: int) -> pd.DataFrame:
+    """Who belongs in the panel at each anchor, and which league they came from.
+
+    Membership is decided by the season that has already finished, never by the club a
+    player is registered to on the anchor date, because transfers run through the summer
+    and the incoming club would leak the future. Only the primary club is kept, so a
+    mid-season move yields one row rather than two.
+    """
+    p = cfg["panel"]
+    leagues = club_domestic_league(tables["games"], p["leagues"])
+    involvement = player_club_season(tables["game_lineups"], tables["appearances"],
+                                     tables["games"])
+
+    frames = []
+    for year in range(p["min_anchor_season"], last_anchor_season + 1):
+        pop = players_at_anchor(involvement, leagues, anchor_year=year)
+        pop = pop[pop["is_primary"]].copy()
+        pop["anchor_date"] = pd.Timestamp(f"{year}-{p['anchor_month_day']}")
+        frames.append(pop)
+
+    return pd.concat(frames, ignore_index=True)
 
 
 def value_asof(valuations: pd.DataFrame, anchors: pd.DataFrame,
@@ -44,32 +81,52 @@ def add_targets(panel: pd.DataFrame, valuations: pd.DataFrame, horizons: list[in
     return panel
 
 
+def add_player_features(panel: pd.DataFrame, players: pd.DataFrame,
+                        profiles: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Attach the fixed facts about a player, plus age at the anchor.
+
+    Only columns in PLAYER_FEATURE_COLUMNS cross over. Everything else in `players` is a
+    scrape-time snapshot that would leak the future into historical anchors.
+    """
+    available = [c for c in PLAYER_FEATURE_COLUMNS if c in players.columns]
+    out = panel.merge(players[available], on="player_id", how="left")
+
+    out["age"] = (out["anchor_date"] - out["date_of_birth"]).dt.days / 365.25
+    if "height_in_cm" in out.columns:
+        # 4.7% of heights are 0, which means unknown rather than a 0 cm player
+        out["height_in_cm"] = out["height_in_cm"].replace(0, np.nan)
+
+    if profiles is not None and "is_eu" in profiles.columns:
+        # Citizenship rarely changes, so the snapshot flag is safe as a fixed fact
+        eu = profiles[["player_id", "is_eu"]].drop_duplicates("player_id")
+        out = out.merge(eu, on="player_id", how="left")
+
+    return out
+
+
 def build_panel(tables: dict[str, pd.DataFrame], cfg: dict) -> pd.DataFrame:
     """Assemble the full panel from cleaned tables."""
     p = cfg["panel"]
     last_value_year = pd.Timestamp(cfg["split"]["values_available_until"]).year
-    anchors = anchor_dates(p["min_anchor_season"], last_value_year, p["anchor_month_day"])
 
-    # Cross join every valued player with every anchor
-    players = tables["player_valuations"][["player_id"]].drop_duplicates()
-    grid = players.merge(pd.DataFrame({"anchor_date": anchors}), how="cross")
+    # Population comes from who actually played, not from a cross join of every player
+    # against every anchor, so the league filter and the anti-leakage rule are one step
+    panel = anchor_population(tables, cfg, last_anchor_season=last_value_year)
 
-    panel = value_asof(tables["player_valuations"], grid,
+    panel = value_asof(tables["player_valuations"], panel,
                        max_staleness_days=p["max_value_staleness_days"])
     panel = panel.dropna(subset=["value_eur"])
     panel = add_targets(panel, tables["player_valuations"], cfg["target"]["horizons"],
                         p["max_value_staleness_days"])
 
-    # >>> 1. PLAYER FEATURES HERE: age at anchor, position, foot, height, EU passport <<<
+    panel = add_player_features(panel, tables["players"], tables.get("player_profiles"))
 
     # >>> 2. VALUE HISTORY FEATURES HERE: 12 month change, peak so far, days since update <<<
 
-    # >>> 3. LAST SEASON PERFORMANCE HERE: minutes, start share, G+A per 90, cards <<<
+    # >>> 3. LAST SEASON PERFORMANCE HERE: minutes, start share, G+A per 90 <<<
 
     # >>> 4. CONTEXT FEATURES HERE: league strength, club strength, Euro comps, positional rank <<<
 
     # >>> 5. HEALTH AND MOVES HERE: days injured, transferred last window, fee <<<
-
-    # >>> 6. LEAGUE FILTER HERE: apply cfg["panel"]["leagues"] once decided <<<
 
     return panel.reset_index(drop=True)

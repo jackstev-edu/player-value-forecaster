@@ -23,7 +23,7 @@ move around those three.
 
 | # | Task | Owner | Status | Notes |
 | --- | --- | --- | --- | --- |
-| 4 | Update `configs/config.yaml` | | todo | 9 league ids, `min_anchor_season: 2013`, revised test seasons (decisions #3, #4, #5). |
+| 4 | Update `configs/config.yaml` | Yunus | done | 9 league ids and `min_anchor_season: 2013` set (decisions #3, #4, #5). Test seasons still open, see item F. |
 | 5 | Finish `src/pvf/data/load.py` | | todo | Read from `FV_DATA_DIR` so the path works on both machines. Parse the text dates once. Drop the ~73% duplicate rows in `team_competitions_seasons`. |
 | 6 | **Build the club → league → season map from `games`** | Yunus | wip | Module and tests done: `src/pvf/features/club_league.py`, 8 tests green. Decisions #14–16 came out of it. Still to do: validate against the real parquet (a full pass over `game_lineups`, ~3.2M rows), then wire into `build_panel.py` slot 6 with task 7. |
 
@@ -33,7 +33,7 @@ Jack left numbered slots in `src/pvf/features/build_panel.py`; these fill them i
 
 | # | Task | Owner | Status | Notes |
 | --- | --- | --- | --- | --- |
-| 7 | Slot 1, player features | | todo | Age at anchor, position, foot, height, nationality, EU flag. Fixed facts only — safe at any anchor. |
+| 7 | Slot 1, player features | Yunus | done | `add_player_features` (age, position, foot, height, nationality, EU flag) plus `anchor_population`, which replaces the old cross join and so wires slot 6 in at the same time. 8 tests. Not yet run against real parquet. |
 | 8 | Slot 2, value history | | todo | Current value, 12-month change, peak so far, days since last update, `years_of_history`. Null for newcomers by design (decision #6). |
 | 9 | Slot 3, last season's performance | | todo | Minutes, share of starts, goals and assists per 90. No cards (decision #12). |
 | 10 | Slot 4, context | | todo | **The project's thesis.** League strength, club strength rebuilt per club-year (decision #10), European participation from `games` (decision #11), value rank among same-position players at club and in league. |

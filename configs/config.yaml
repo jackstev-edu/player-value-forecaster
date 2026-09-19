@@ -4,10 +4,11 @@ project:
   seed: 42
 
 panel:
-  anchor_month_day: "07-01"        # OPEN DECISION: season start snapshot date
-  min_anchor_season: 2012          # appearances table starts July 2012
+  anchor_month_day: "07-01"        # settled, decision #1
+  min_anchor_season: 2013          # appearances starts 2012-07-03, so 2012 has no prior season
   max_value_staleness_days: 365    # drop anchors whose latest value is older than this
-  leagues: []                      # OPEN DECISION: empty means every tracked domestic league
+  # Settled, decisions #3 and #4. Poland (PL1) is out: games only covers it from 2024.
+  leagues: ["GB1", "IT1", "ES1", "L1", "FR1", "PO1", "BE1", "NL1", "TR1"]
 
 target:
   horizons: [1, 2, 3]              # seasons ahead
