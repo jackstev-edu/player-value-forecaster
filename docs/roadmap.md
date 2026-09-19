@@ -25,7 +25,7 @@ move around those three.
 | --- | --- | --- | --- | --- |
 | 4 | Update `configs/config.yaml` | | todo | 9 league ids, `min_anchor_season: 2013`, revised test seasons (decisions #3, #4, #5). |
 | 5 | Finish `src/pvf/data/load.py` | | todo | Read from `FV_DATA_DIR` so the path works on both machines. Parse the text dates once. Drop the ~73% duplicate rows in `team_competitions_seasons`. |
-| 6 | **Build the club → league → season map from `games`** | | todo | **Gates everything downstream.** `player_valuations.player_club_domestic_competition_id` goes stale from 2024 and would silently halve the recent test seasons (decision #9). Nothing in Phase 2 is trustworthy until this exists. |
+| 6 | **Build the club → league → season map from `games`** | Yunus | wip | Module and tests done: `src/pvf/features/club_league.py`, 8 tests green. Decisions #14–16 came out of it. Still to do: validate against the real parquet (a full pass over `game_lineups`, ~3.2M rows), then wire into `build_panel.py` slot 6 with task 7. |
 
 ## Phase 2 — the player-season panel
 
