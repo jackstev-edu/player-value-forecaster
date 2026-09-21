@@ -44,7 +44,7 @@ History depth is a feature, not a filter — see decision #6 for why the ≥8 co
 
 ---
 
-## The three traps
+## The four traps
 
 ### 1. `clubs.total_market_value` is 100% empty
 
@@ -99,7 +99,8 @@ played for in that season. This is task 6 on the roadmap and it gates every cont
 against that single row and the table needs no other defence.
 
 **Identification:** players are uniquely identified by name + birth date. `country_of_citizenship`
-is 99.3% filled across 172 countries; `date_of_birth` 99.9%; `position` 100%; `foot` 95.0%;
+is 99.3% filled across 172 countries; `date_of_birth` 99.9%; `position` has no nulls but
+**586 players carry the literal string `"Missing"`** (see the fourth trap); `foot` 95.0%;
 `height_in_cm` 95.3% but **4.7% are zero, meaning unknown**.
 
 **Injuries:** 143,195 rows over 34,561 players. `days_missed` and `games_missed` are 100% filled
@@ -121,6 +122,22 @@ Smaller duplicate counts exist in `player_injuries` (111), `player_national_perf
 and `transfer_history` (123).
 
 ---
+
+### 4. `players.position` says "Missing" instead of null
+
+`position` has zero nulls, which reads as 100% coverage and is how it was first recorded here.
+It is not: **586 of 50,149 players carry the literal string `"Missing"`**, with `sub_position`
+null alongside. Counting nulls will never find them.
+
+This bites anything that groups by position. Ranking players within position put these 586 in
+groups of one or two, handing each one rank 1 and a percentile of 1.0 — a model reads that as
+"the best attacker at his club" when it means "we do not know what he plays". 57 of them reach
+the panel.
+
+**Do instead:** treat `"Missing"` as unknown, not as a position. `pvf.features.context`
+keeps the set in `UNKNOWN_POSITIONS` and nulls the rank columns for those rows. The signature
+that it is working: `position_peers_in_league` has a minimum of 22 (the thinnest real group is
+goalkeepers) rather than 1.
 
 ## The Europa League share falls in 2022, and that is real football, not a data break
 

@@ -6,6 +6,7 @@ scrape-time snapshot (decision #10). European participation comes from `games`, 
 `team_competitions_seasons` contains no UEFA competitions at all (decision #11). Both
 traps fail silently — see `docs/data_coverage.md`.
 """
+import numpy as np
 import pandas as pd
 
 from pvf.features.club_league import (
@@ -13,6 +14,10 @@ from pvf.features.club_league import (
     club_domestic_league,
     club_european_participation,
 )
+
+# `players.position` uses this string rather than a null for players whose position was
+# never recorded. It is a sentinel, so it must not be ranked as if it were a position.
+UNKNOWN_POSITIONS = {"Missing"}
 
 
 def _top5_mean(values: pd.Series) -> float:
@@ -67,6 +72,42 @@ def league_strength(strength: pd.DataFrame, leagues: pd.DataFrame) -> pd.DataFra
                  league_total_value_eur="sum",
                  league_median_club_value_eur="median")
             .reset_index())
+
+
+def positional_ranks(panel: pd.DataFrame) -> pd.DataFrame:
+    """Rank each player against the same-position players around him, at that anchor.
+
+    Two scopes: his own club, and every club in his league. A centre-back worth €8M is
+    a different proposition depending on whether he is the best defender at his club or
+    the fourth, and neither his own value nor his club's strength says which.
+
+    This is the one context feature that cannot be a `(club_id, season)` join, so it is
+    computed here rather than in `add_context_features`. Grouping on `anchor_date` is
+    what keeps it honest: the comparison is cross-sectional, between players at the same
+    moment, and `value_eur` is already the as-of-anchor value, so nothing looks forward.
+
+    The peers are the panel's own members, so a club-mate without a fresh enough
+    valuation is not counted. `position_peers_*` carries the group size for that reason —
+    rank 3 means something different out of 4 than out of 20.
+    """
+    out = panel.copy()
+    scopes = {"at_club": "club_id", "in_league": "competition_id"}
+    for suffix, scope_col in scopes.items():
+        grouped = out.groupby(["anchor_date", scope_col, "position"])["value_eur"]
+        # method="min" so tied players share the better rank and consume both places
+        out[f"position_rank_{suffix}"] = grouped.rank(ascending=False, method="min")
+        out[f"position_peers_{suffix}"] = grouped.transform("size").astype(float)
+        # Ascending here so 1.0 is the most valuable, which reads the right way round
+        out[f"position_pctile_{suffix}"] = grouped.rank(ascending=True, pct=True)
+
+    # `players.position` marks 586 unknowns with the string "Missing" rather than a null,
+    # so they group together and come out ranked 1 of 1 — which a model would read as
+    # "best in his position" when it means the opposite of knowing anything
+    unknown = out["position"].isin(UNKNOWN_POSITIONS) | out["position"].isna()
+    rank_columns = [f"position_{stat}_{suffix}"
+                    for suffix in scopes for stat in ("rank", "peers", "pctile")]
+    out.loc[unknown, rank_columns] = np.nan
+    return out
 
 
 def add_context_features(panel: pd.DataFrame, tables: dict[str, pd.DataFrame],

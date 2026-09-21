@@ -2,7 +2,12 @@ import pandas as pd
 import pytest
 
 from pvf.features.build_panel import build_panel
-from pvf.features.context import add_context_features, club_strength, league_strength
+from pvf.features.context import (
+    add_context_features,
+    club_strength,
+    league_strength,
+    positional_ranks,
+)
 
 CFG = {
     "panel": {
@@ -220,3 +225,109 @@ def test_build_panel_attaches_league_strength():
     panel = build_panel(_full_tables(), _full_cfg()).set_index("player_id")
     # GB1 2019 is club 10 at 10M plus club 20 at 3M
     assert panel.loc[1, "league_total_value_eur"] == 13_000_000
+
+
+def _rank_panel():
+    """Two GB1 clubs at one anchor, plus a lone player at a second anchor.
+
+    Player 6 exists so that a rank computed across anchors instead of within one shows
+    up as a peer count of 3 at club 10 rather than 2.
+    """
+    return pd.DataFrame({
+        "player_id": [1, 2, 3, 4, 5, 6],
+        "club_id": [10, 10, 10, 20, 20, 10],
+        "competition_id": ["GB1"] * 6,
+        "position": ["Attack", "Attack", "Defender", "Attack", "Attack", "Attack"],
+        "value_eur": [10e6, 4e6, 7e6, 20e6, 1e6, 99e6],
+        "anchor_date": pd.to_datetime(["2019-07-01"] * 5 + ["2020-07-01"]),
+    })
+
+
+def test_most_valuable_player_in_his_position_ranks_first_at_his_club():
+    out = positional_ranks(_rank_panel()).set_index("player_id")
+    assert out.loc[1, "position_rank_at_club"] == 1
+    assert out.loc[2, "position_rank_at_club"] == 2
+
+
+def test_each_position_is_ranked_on_its_own():
+    out = positional_ranks(_rank_panel()).set_index("player_id")
+    # Player 3 is the only defender at club 10, so he leads his position despite
+    # player 1 being worth more overall
+    assert out.loc[3, "position_rank_at_club"] == 1
+
+
+def test_club_ranks_do_not_pool_players_from_other_clubs():
+    out = positional_ranks(_rank_panel()).set_index("player_id")
+    # Player 5 is the cheapest attacker in the league but only the second at his club
+    assert out.loc[5, "position_rank_at_club"] == 2
+    assert out.loc[5, "position_rank_in_league"] == 4
+
+
+def test_league_ranks_pool_every_club_in_that_league():
+    out = positional_ranks(_rank_panel()).set_index("player_id")
+    # Behind player 4's 20M, ahead of players 2 and 5
+    assert out.loc[1, "position_rank_in_league"] == 2
+
+
+def test_peer_counts_are_reported_for_both_scopes():
+    out = positional_ranks(_rank_panel()).set_index("player_id")
+    assert out.loc[1, "position_peers_at_club"] == 2
+    assert out.loc[1, "position_peers_in_league"] == 4
+
+
+def test_percentile_is_one_for_the_most_valuable_in_the_group():
+    out = positional_ranks(_rank_panel()).set_index("player_id")
+    assert out.loc[4, "position_pctile_in_league"] == pytest.approx(1.0)
+    assert out.loc[5, "position_pctile_in_league"] == pytest.approx(0.25)
+
+
+def test_ranks_are_computed_within_one_anchor():
+    out = positional_ranks(_rank_panel()).set_index("player_id")
+    # Player 6 is at club 10 too, but a season later
+    assert out.loc[6, "position_peers_at_club"] == 1
+
+
+def test_players_worth_the_same_share_a_rank():
+    panel = pd.DataFrame({
+        "player_id": [1, 2, 3],
+        "club_id": [10, 10, 10],
+        "competition_id": ["GB1"] * 3,
+        "position": ["Attack"] * 3,
+        "value_eur": [5e6, 5e6, 1e6],
+        "anchor_date": pd.to_datetime(["2019-07-01"] * 3),
+    })
+    out = positional_ranks(panel).set_index("player_id")
+    assert out.loc[1, "position_rank_at_club"] == 1
+    assert out.loc[2, "position_rank_at_club"] == 1
+    # The tie consumes both places, so the next player is third
+    assert out.loc[3, "position_rank_at_club"] == 3
+
+
+def test_build_panel_attaches_positional_ranks():
+    panel = build_panel(_full_tables(), _full_cfg()).set_index("player_id")
+    # One attacker and one defender, each alone in his position at his own club
+    assert panel.loc[1, "position_rank_at_club"] == 1
+    assert panel.loc[1, "position_peers_in_league"] == 1
+
+
+def test_a_player_with_an_unknown_position_gets_no_rank():
+    """`players.position` uses the string "Missing", not null, for 586 players.
+
+    Ranking them puts each in a group of one or two and hands back rank 1 and a
+    percentile of 1.0, which reads to a model as "the best in his position" when it
+    actually means "we do not know what he plays".
+    """
+    panel = pd.DataFrame({
+        "player_id": [1, 2],
+        "club_id": [10, 10],
+        "competition_id": ["GB1", "GB1"],
+        "position": ["Missing", "Attack"],
+        "value_eur": [5e6, 5e6],
+        "anchor_date": pd.to_datetime(["2019-07-01"] * 2),
+    })
+    out = positional_ranks(panel).set_index("player_id")
+    assert pd.isna(out.loc[1, "position_rank_at_club"])
+    assert pd.isna(out.loc[1, "position_pctile_in_league"])
+    assert pd.isna(out.loc[1, "position_peers_at_club"])
+    # The known-position player is unaffected
+    assert out.loc[2, "position_rank_at_club"] == 1

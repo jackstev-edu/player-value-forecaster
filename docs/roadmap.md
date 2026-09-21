@@ -36,7 +36,7 @@ Jack left numbered slots in `src/pvf/features/build_panel.py`; these fill them i
 | 7 | Slot 1, player features | Yunus | done | `add_player_features` (age, position, foot, height, nationality, EU flag) plus `anchor_population`, which replaces the old cross join and so wires slot 6 in at the same time. 8 tests. Not yet run against real parquet. |
 | 8 | Slot 2, value history | | todo | Current value, 12-month change, peak so far, days since last update, `years_of_history`. Null for newcomers by design (decision #6). |
 | 9 | Slot 3, last season's performance | | todo | Minutes, share of starts, goals and assists per 90. No cards (decision #12). |
-| 10 | Slot 4, context | Yunus | wip | **The project's thesis.** Landed in `src/pvf/features/context.py`, 17 tests, validated on the real parquet: club strength per club-season (decision #10), league strength built from it (#20), `club_value_share_of_league` (#21), and European participation from `games` (#11). Only positional rank is left — split into task 22 because it needs per-anchor computation rather than a club-season join (#19). |
+| 10 | Slot 4, context | Yunus | done | **The project's thesis, complete.** `src/pvf/features/context.py`, 27 tests, validated on the real parquet: club strength per club-season (#10), league strength built from it (#20), `club_value_share_of_league` (#21), European participation from `games` (#11), and positional rank at club and league (#22, #23). |
 | 11 | Slot 5, health and moves | | todo | Injury aggregates from dates and durations, not the reason text (decision #7). Transfer flags and fees from `transfer_history`. |
 | 12 | Extend `tests/test_leakage.py` | | todo | Assert every new feature's source columns against `leakage.py`. Run it as each slot lands, not at the end. |
 
@@ -63,7 +63,7 @@ Jack left numbered slots in `src/pvf/features/build_panel.py`; these fill them i
 | 19 | **Manual dataset, 500+ rows** | | todo | **Rubric requirement and currently blocking.** The only task here with no dependencies, so it can start immediately. Candidates in `docs/decisions.md`; the human-baseline-forecast option is strongest because it doubles as a benchmark for the report. |
 | 20 | Confirm the second model family | | todo | `chronos` is proposed in the config. Check it against the rubric. |
 | 21 | Deadline, deliverables, rubric questions | | todo | Parked 2026-09-19. The 500-vs-1000 sample discrepancy needs an instructor answer. |
-| 22 | Positional rank, the rest of slot 4 | | todo | Value rank among same-position players at the player's club and in their league, as of each anchor. Unlike the rest of slot 4 this cannot be a `(club_id, season)` join — ranks have to be computed per anchor without looking forward (decision #19). |
+| 22 | Positional rank, the rest of slot 4 | Yunus | done | Rank, peer count and percentile against same-position players at the player's club and in his league, per anchor (#22). Uncovered a fourth silent trap: `players.position` uses the string "Missing" rather than null, which was producing rank-1-of-1 groups (#23). |
 
 ---
 
