@@ -157,6 +157,20 @@ def _full_tables():
             "date": pd.to_datetime(["2019-06-01", "2020-06-01", "2020-06-01"]),
             "market_value_in_eur": [5e6, 10e6, 3e6],
         }),
+        # Slot 5 reads these two; empty means nobody is tracked, so its columns
+        # come back null rather than zero.
+        "player_injuries": pd.DataFrame({
+            "player_id": pd.Series(dtype="int64"),
+            "from_date": pd.Series(dtype="datetime64[ns]"),
+            "end_date": pd.Series(dtype="datetime64[ns]"),
+            "days_missed": pd.Series(dtype="float64"),
+        }),
+        "transfer_history": pd.DataFrame({
+            "player_id": pd.Series(dtype="int64"),
+            "transfer_date": pd.Series(dtype="datetime64[ns]"),
+            "transfer_type": pd.Series(dtype="object"),
+            "transfer_fee": pd.Series(dtype="int64"),
+        }),
     }
 
 

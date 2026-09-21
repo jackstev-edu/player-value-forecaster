@@ -12,6 +12,7 @@ from pvf.features.club_league import (
     players_at_anchor,
 )
 from pvf.features.context import add_context_features, positional_ranks
+from pvf.features.health import add_health_and_moves
 from pvf.features.history import add_value_history
 from pvf.features.performance import add_performance_features
 
@@ -147,6 +148,8 @@ def build_panel(tables: dict[str, pd.DataFrame], cfg: dict) -> pd.DataFrame:
     # population and the anchor values already settled
     panel = positional_ranks(panel)
 
-    # >>> 5. HEALTH AND MOVES HERE: days injured, transferred last window, fee <<<
+    # Slot 5: time lost and moves made. Both source tables under-cover the panel, so
+    # these columns are null rather than zero where the player is not tracked.
+    panel = add_health_and_moves(panel, tables)
 
     return panel.reset_index(drop=True)

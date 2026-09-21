@@ -44,7 +44,7 @@ History depth is a feature, not a filter — see decision #6 for why the ≥8 co
 
 ---
 
-## The five traps
+## The six traps
 
 ### 1. `clubs.total_market_value` is 100% empty
 
@@ -156,6 +156,34 @@ letting the count stand. `pvf.features.performance` checks which seasons appear 
 lineup frame and nulls `starts` outside them; within a covered season a player with no lineup row
 genuinely was not named, and keeps his zero. Minutes, goals and assists come from `appearances`
 and are unaffected, so season 2012 rows keep every other performance column.
+
+### 6. Injury coverage grows across the window, and collapses at the 2026 anchor
+
+`player_injuries` covers whoever Transfermarkt had recorded by scrape time, and that is a
+different set of players in 2013 than in 2023. Measured per anchor, on panel rows:
+
+| Anchor | 2013 | 2016 | 2019 | 2020 | 2022 | 2024 | 2025 | 2026 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Share of rows whose player has any injury record | 0.718 | 0.785 | 0.839 | **0.856** | 0.840 | 0.777 | 0.760 | 0.700 |
+| Share with an injury in the 12 months before | 0.253 | 0.305 | 0.414 | 0.430 | 0.501 | 0.484 | 0.513 | **0.136** |
+| Mean days injured in that window | 19.9 | 23.3 | 29.6 | 29.4 | 32.6 | 38.3 | **41.8** | 7.5 |
+
+The apparent injury rate **doubles** between 2013 and 2021 and mean days lost roughly doubles
+again by 2025. Footballers did not become twice as fragile; the record got fuller. Our split
+puts training at anchors ≤ 2020 and testing at 2022–2025, so a model learns injury from the
+thin half of the record and is scored on the full half.
+
+The 2026 anchor is the sharp version of the same thing: `player_injuries` ends **2025-12-22**,
+so the 12 months before 1 July 2026 contain barely six months of data. Injury rate falls to
+0.136 and mean days to 7.5 — not a healthy season, a truncated file. The 2026 anchor already
+carries no targets and is unfit for training; this makes it wrong for **serving** too unless
+the injury columns are suppressed for it.
+
+**Do instead:** carry `has_injury_record` so the model can separate "not hurt" from "not
+tracked", and treat the injury group as one block in the task 15 ablation, where the time-split
+backtest will show whether it survives the drift. Do not read a raw rise in `days_injured_12m`
+across seasons as a finding about football. The same caution applies, much more weakly, to
+transfers: coverage there runs 0.885 → 0.962 and is close to flat from 2018 on.
 
 ## The Europa League share falls in 2022, and that is real football, not a data break
 
