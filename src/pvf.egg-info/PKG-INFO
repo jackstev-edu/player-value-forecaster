@@ -1,5 +1,0 @@
-Metadata-Version: 2.4
-Name: pvf
-Version: 0.1.0
-Summary: Player market value forecaster (CMU 24-679 Project 1)
-Requires-Python: >=3.10
