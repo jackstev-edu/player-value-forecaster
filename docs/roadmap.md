@@ -34,7 +34,7 @@ Jack left numbered slots in `src/pvf/features/build_panel.py`; these fill them i
 | # | Task | Owner | Status | Notes |
 | --- | --- | --- | --- | --- |
 | 7 | Slot 1, player features | Yunus | done | `add_player_features` (age, position, foot, height, nationality, EU flag) plus `anchor_population`, which replaces the old cross join and so wires slot 6 in at the same time. 8 tests. Not yet run against real parquet. |
-| 8 | Slot 2, value history | | todo | Current value, 12-month change, peak so far, days since last update, `years_of_history`. Null for newcomers by design (decision #6). |
+| 8 | Slot 2, value history | Yunus | done | `src/pvf/features/history.py`, 11 tests, validated on the real parquet. Peak so far, value vs peak, 12-month change, years of history, valuation count (#24). Newcomers take nulls by design — 10% of rows, median age 19.6 (#25). Days since update was already on the panel as `value_age_days`. |
 | 9 | Slot 3, last season's performance | | todo | Minutes, share of starts, goals and assists per 90. No cards (decision #12). |
 | 10 | Slot 4, context | Yunus | done | **The project's thesis, complete.** `src/pvf/features/context.py`, 27 tests, validated on the real parquet: club strength per club-season (#10), league strength built from it (#20), `club_value_share_of_league` (#21), European participation from `games` (#11), and positional rank at club and league (#22, #23). |
 | 11 | Slot 5, health and moves | | todo | Injury aggregates from dates and durations, not the reason text (decision #7). Transfer flags and fees from `transfer_history`. |
