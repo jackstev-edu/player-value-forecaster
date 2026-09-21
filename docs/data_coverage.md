@@ -44,7 +44,7 @@ History depth is a feature, not a filter — see decision #6 for why the ≥8 co
 
 ---
 
-## The four traps
+## The five traps
 
 ### 1. `clubs.total_market_value` is 100% empty
 
@@ -138,6 +138,24 @@ the panel.
 keeps the set in `UNKNOWN_POSITIONS` and nulls the rank columns for those rows. The signature
 that it is working: `position_peers_in_league` has a minimum of 22 (the thinnest real group is
 goalkeepers) rather than 1.
+
+### 5. `game_lineups` does not exist for season 2012, so starts read as zero
+
+`game_lineups` begins on **2013-07-02**. `appearances` begins a year earlier, on 2012-07-03, and
+season 2012 is in the panel because of that: it is the prior season for the 2013 anchor, and the
+squad rule falls back to appearances for it (decision #15).
+
+The two tables do not cover the same span, and only `game_lineups` says who *started*. Counting
+starting-XI rows per player-season therefore returns **0 for every player in season 2012** — not
+because they were substitutes, but because the table has no rows to count. A model reads a
+column of zeros as "nobody in this season ever started". **4,278 panel rows** are drawn from
+season 2012, 6.1% of the panel.
+
+**Do instead:** null the start columns for any season `game_lineups` does not cover, rather than
+letting the count stand. `pvf.features.performance` checks which seasons appear in the joined
+lineup frame and nulls `starts` outside them; within a covered season a player with no lineup row
+genuinely was not named, and keeps his zero. Minutes, goals and assists come from `appearances`
+and are unaffected, so season 2012 rows keep every other performance column.
 
 ## The Europa League share falls in 2022, and that is real football, not a data break
 

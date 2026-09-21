@@ -76,6 +76,7 @@ def _tables():
         "appearances": pd.DataFrame({
             "game_id": [1, 2], "player_id": [1, 2],
             "player_club_id": [10, 99], "minutes_played": [90, 90],
+            "goals": [0, 0], "assists": [0, 0],
         }),
     }
 

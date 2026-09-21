@@ -13,6 +13,7 @@ from pvf.features.club_league import (
 )
 from pvf.features.context import add_context_features, positional_ranks
 from pvf.features.history import add_value_history
+from pvf.features.performance import add_performance_features
 
 # Allowlist, not a blocklist: anything not named here stays out of the panel, so a new
 # snapshot column in players/ cannot leak in by being forgotten. See features/leakage.py.
@@ -134,7 +135,9 @@ def build_panel(tables: dict[str, pd.DataFrame], cfg: dict) -> pd.DataFrame:
     panel = add_value_history(panel, tables["player_valuations"],
                               p["max_value_staleness_days"])
 
-    # >>> 3. LAST SEASON PERFORMANCE HERE: minutes, start share, G+A per 90 <<<
+    # Slot 3: last season on the field. Minutes and squad games arrived with the
+    # population, so this adds the shape of them: starts and scoring per 90.
+    panel = add_performance_features(panel, tables)
 
     # Slot 4: club strength, league strength, European participation, positional rank
     involvement = player_club_season(tables["game_lineups"], tables["appearances"],

@@ -101,6 +101,7 @@ def _full_tables():
         "appearances": pd.DataFrame({
             "game_id": [1, 1], "player_id": [1, 2],
             "player_club_id": [10, 20], "minutes_played": [90, 90],
+            "goals": [0, 0], "assists": [0, 0],
         }),
         "players": pd.DataFrame({
             "player_id": [1, 2],
