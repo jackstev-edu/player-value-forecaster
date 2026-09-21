@@ -164,14 +164,19 @@ different set of players in 2013 than in 2023. Measured per anchor, on panel row
 
 | Anchor | 2013 | 2016 | 2019 | 2020 | 2022 | 2024 | 2025 | 2026 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Share of rows whose player has any injury record | 0.718 | 0.785 | 0.839 | **0.856** | 0.840 | 0.777 | 0.760 | 0.700 |
+| Share of rows with an injury on record *by that anchor* | 0.410 | 0.480 | 0.630 | 0.663 | 0.727 | 0.722 | **0.752** | 0.700 |
 | Share with an injury in the 12 months before | 0.253 | 0.305 | 0.414 | 0.430 | 0.501 | 0.484 | 0.513 | **0.136** |
-| Mean days injured in that window | 19.9 | 23.3 | 29.6 | 29.4 | 32.6 | 38.3 | **41.8** | 7.5 |
+| Mean days injured in that window, over rows on record | 34.8 | 38.2 | 39.5 | 37.9 | 37.7 | 41.2 | **42.2** | 7.6 |
 
-The apparent injury rate **doubles** between 2013 and 2021 and mean days lost roughly doubles
-again by 2025. Footballers did not become twice as fragile; the record got fuller. Our split
-puts training at anchors ≤ 2020 and testing at 2022–2025, so a model learns injury from the
-thin half of the record and is scored on the full half.
+The apparent injury rate **doubles** between 2013 and 2021. Footballers did not become twice as
+fragile; the record got fuller. Our split puts training at anchors ≤ 2020 and testing at
+2022–2025, so a model learns injury from the thin half of the record and is scored on the full
+half.
+
+The first row rises for two reasons at once and they cannot be separated: the scrape covers
+more players over time, *and* a 2013 anchor has simply had fewer years in which an injury could
+be recorded. Read it as "has an injury history by now", which is what the feature means, not as
+a coverage rate.
 
 The 2026 anchor is the sharp version of the same thing: `player_injuries` ends **2025-12-22**,
 so the 12 months before 1 July 2026 contain barely six months of data. Injury rate falls to

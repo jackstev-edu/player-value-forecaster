@@ -114,6 +114,14 @@ def transfer_window(transfers: pd.DataFrame, panel: pd.DataFrame) -> pd.DataFram
         transfer_fee_12m=("fee", "max"))
 
 
+def _has_record_by(panel: pd.DataFrame, table: pd.DataFrame, date_col: str) -> pd.Series:
+    """Whether the player had appeared in this table by each row's anchor date."""
+    first_seen = table.dropna(subset=[date_col]).groupby("player_id")[date_col].min()
+    anchors = panel["anchor_date"].astype("datetime64[ns]")
+    # A player with no row maps to NaT, and NaT <= anchor is False, which is the answer
+    return panel["player_id"].map(first_seen).le(anchors)
+
+
 def add_health_and_moves(panel: pd.DataFrame,
                          tables: dict[str, pd.DataFrame]) -> pd.DataFrame:
     """Attach injury and transfer history as it stood at each anchor."""
@@ -123,10 +131,15 @@ def add_health_and_moves(panel: pd.DataFrame,
     out = panel.merge(injury_window(injuries, panel), on=_KEYS, how="left")
     out = out.merge(transfer_window(transfers, panel), on=_KEYS, how="left")
 
-    # A tracked player with a quiet year scores zero; an untracked one stays null, and
-    # the flag is what tells the two apart.
-    out["has_injury_record"] = out["player_id"].isin(set(injuries["player_id"]))
-    out["has_transfer_record"] = out["player_id"].isin(set(transfers["player_id"]))
+    # A player with a history and a quiet year scores zero; one with no history at all
+    # stays null, and the flag is what tells the two apart.
+    #
+    # The flag is itself as-of the anchor. Asking whether the player appears anywhere in
+    # the file reads rows dated after it, so a player first hurt in August would arrive
+    # at a 1 July anchor already marked as having an injury record — the future, wearing
+    # a coverage flag. Only rows dated on or before the anchor count.
+    out["has_injury_record"] = _has_record_by(out, injuries, "from_date")
+    out["has_transfer_record"] = _has_record_by(out, transfers, "transfer_date")
 
     injury_cols = ["days_injured_12m", "injury_spells_12m", "injured_at_anchor"]
     move_cols = ["transferred_12m", "loaned_12m"]

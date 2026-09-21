@@ -37,3 +37,45 @@ def assert_no_leakage(used: dict[str, list[str]]) -> None:
     bad = [f"{t}.{c}" for t, cols in used.items() for c in cols if is_leaky(t, c)]
     if bad:
         raise ValueError(f"Leaky snapshot columns selected: {bad}")
+
+
+# What each feature module is allowed to read, declared rather than inferred. Task 12:
+# every slot's inputs go past `assert_no_leakage`, and `tests/test_leakage.py` fails if a
+# module appears in `pvf/features` without a row here — so a new slot cannot be added
+# without saying what it reads.
+#
+# Passing this list is necessary, not sufficient: it catches a snapshot column by name,
+# and says nothing about reading a real column at the wrong date. The behavioural test in
+# `tests/test_leakage.py` covers that half by rebuilding the panel with the future added
+# and asserting no feature column moves.
+FEATURE_SOURCES = {
+    "build_panel": {
+        "games": ["game_id", "competition_id", "season", "home_club_id", "away_club_id"],
+        "game_lineups": ["game_id", "player_id", "club_id"],
+        "appearances": ["game_id", "player_id", "player_club_id", "minutes_played"],
+        "players": ["player_id", "date_of_birth", "position", "sub_position", "foot",
+                    "height_in_cm", "country_of_citizenship"],
+        "player_valuations": ["player_id", "date", "market_value_in_eur"],
+        "player_profiles": ["player_id", "is_eu"],
+    },
+    "history": {
+        "player_valuations": ["player_id", "date", "market_value_in_eur"],
+    },
+    "performance": {
+        "games": ["game_id", "season"],
+        "game_lineups": ["game_id", "player_id", "club_id", "type"],
+        "appearances": ["game_id", "player_id", "player_club_id", "goals", "assists"],
+    },
+    "context": {
+        "games": ["game_id", "competition_id", "season", "home_club_id", "away_club_id"],
+        "game_lineups": ["game_id", "player_id", "club_id"],
+        "appearances": ["game_id", "player_id", "player_club_id"],
+        "player_valuations": ["player_id", "date", "market_value_in_eur"],
+        "players": ["player_id", "position"],
+    },
+    "health": {
+        "player_injuries": ["player_id", "from_date", "end_date", "days_missed"],
+        "transfer_history": ["player_id", "transfer_date", "transfer_type",
+                             "transfer_fee"],
+    },
+}

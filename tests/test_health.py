@@ -23,6 +23,7 @@ def _injuries():
         (6, "2019-09-15", "2019-10-15", 30.0),
         (7, "2019-09-01", "2019-10-01", 30.0),
         (7, "2019-11-01", "2019-12-01", 30.0),   # a clear gap between the two
+        (8, "2020-08-15", "2020-12-01", 108.0),  # his first injury, a month AFTER
     ]
     return pd.DataFrame(rows, columns=["player_id", "from_date", "end_date",
                                        "days_missed"]).assign(
@@ -37,8 +38,10 @@ def _transfers():
         (1, "2019-08-01", "Transfer", 5_000_000),
         (1, "2019-09-01", "Transfer", 1_000_000),   # smaller, same window
         (2, "2020-01-31", "Loan", 0),
+        (3, "2018-01-01", "Transfer", 4_000_000),   # long before the window
         (3, "2020-08-01", "Transfer", 20_000_000),  # after the anchor
         (4, "2019-07-15", "Transfer", 0),           # fee not recorded
+        (8, "2020-09-01", "Transfer", 9_000_000),   # his first move, AFTER
     ]
     return pd.DataFrame(rows, columns=["player_id", "transfer_date", "transfer_type",
                                        "transfer_fee"]).assign(
@@ -47,8 +50,8 @@ def _transfers():
 
 def _panel():
     return pd.DataFrame({
-        "player_id": [1, 2, 3, 4, 5, 6, 7],
-        "anchor_date": [ANCHOR] * 7,
+        "player_id": [1, 2, 3, 4, 5, 6, 7, 8],
+        "anchor_date": [ANCHOR] * 8,
     })
 
 
@@ -136,8 +139,11 @@ def test_a_loan_is_flagged_separately_from_a_permanent_move():
 
 
 def test_a_move_after_the_anchor_is_invisible():
-    # Player 3's August transfer is the summer window the panel must never see
+    # Player 3 last moved in 2018, so he is on record at the anchor and scores a real
+    # zero. His August transfer is the summer window the panel must never see, and its
+    # 20M fee must not appear either.
     out = _out()
+    assert out.loc[3, "has_transfer_record"]
     assert out.loc[3, "transferred_12m"] == 0
     assert pd.isna(out.loc[3, "transfer_fee_12m"])
 
@@ -157,6 +163,17 @@ def test_a_player_with_no_transfer_row_is_null_not_zero():
     out = _out()
     assert not out.loc[5, "has_transfer_record"]
     assert pd.isna(out.loc[5, "transferred_12m"])
+
+
+def test_a_record_that_starts_after_the_anchor_does_not_exist_yet():
+    """Coverage is itself a feature, so it has to be as-of the anchor. Player 8 is hurt
+    in August and sold in September; on 1 July neither has happened, and knowing he is
+    about to appear in both files is knowing the future."""
+    out = _out()
+    assert not out.loc[8, "has_injury_record"]
+    assert not out.loc[8, "has_transfer_record"]
+    assert pd.isna(out.loc[8, "days_injured_12m"])
+    assert pd.isna(out.loc[8, "transferred_12m"])
 
 
 def test_health_does_not_multiply_panel_rows():
