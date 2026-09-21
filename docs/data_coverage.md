@@ -133,6 +133,14 @@ is flat at 0.16–0.20 throughout, as it should be — the Champions League fiel
 Anyone who sees the `played_uel` step and reaches for the data-quality explanation should stop
 here. The three flags have to be read together.
 
+## League sizes change, and every change in our window is a real one
+
+`league_club_count` is not constant per league, which looks like a mapping bug and is not.
+Across 2012-2025 anchors: Ligue 1 20 -> 18 (2023-24), the Super Lig 18 -> 21 (2023-24), the
+Belgian First Division 16 -> 18, the Primeira Liga 16 -> 18. The Premier League, Serie A, La
+Liga hold at 20 and the Bundesliga and Eredivisie at 18 throughout, which is correct. Any count
+outside 16-21 would be the bug; none appears.
+
 ## How to reproduce
 
 The measurements came from throwaway analysis scripts, not committed code. When Phase 1 lands,

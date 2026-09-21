@@ -8,7 +8,11 @@ traps fail silently — see `docs/data_coverage.md`.
 """
 import pandas as pd
 
-from pvf.features.club_league import UEFA_COMPETITIONS, club_european_participation
+from pvf.features.club_league import (
+    UEFA_COMPETITIONS,
+    club_domestic_league,
+    club_european_participation,
+)
 
 
 def _top5_mean(values: pd.Series) -> float:
@@ -49,6 +53,22 @@ def club_strength(involvement: pd.DataFrame, valuations: pd.DataFrame,
             .reset_index())
 
 
+def league_strength(strength: pd.DataFrame, leagues: pd.DataFrame) -> pd.DataFrame:
+    """One row per (competition_id, season): how rich that league was that season.
+
+    Built from the club-season strengths rather than from players directly, so a league
+    is the sum of its clubs and `league_median_club_value_eur` is the median *club*, not
+    the median player. An inner join means a club that fielded nobody that season is
+    absent rather than counted as worth zero.
+    """
+    joined = leagues.merge(strength, on=["club_id", "season"], how="inner")
+    return (joined.groupby(["competition_id", "season"])["club_squad_value_eur"]
+            .agg(league_club_count="size",
+                 league_total_value_eur="sum",
+                 league_median_club_value_eur="median")
+            .reset_index())
+
+
 def add_context_features(panel: pd.DataFrame, tables: dict[str, pd.DataFrame],
                          cfg: dict) -> pd.DataFrame:
     """Attach the club the player came from: its squad value and its European season.
@@ -59,6 +79,14 @@ def add_context_features(panel: pd.DataFrame, tables: dict[str, pd.DataFrame],
     """
     strength = club_strength(tables["involvement"], tables["player_valuations"], cfg["panel"])
     out = panel.merge(strength, on=["club_id", "season"], how="left")
+
+    leagues = club_domestic_league(tables["games"], cfg["panel"]["leagues"])
+    out = out.merge(league_strength(strength, leagues),
+                    on=["competition_id", "season"], how="left")
+    # How big a fish in what pond: the same squad value means something different in the
+    # Premier League than in the Eredivisie, and neither number says that on its own
+    out["club_value_share_of_league"] = (out["club_squad_value_eur"]
+                                         / out["league_total_value_eur"])
 
     out = out.merge(club_european_participation(tables["games"]),
                     on=["club_id", "season"], how="left")
