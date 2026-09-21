@@ -36,7 +36,7 @@ Jack left numbered slots in `src/pvf/features/build_panel.py`; these fill them i
 | 7 | Slot 1, player features | Yunus | done | `add_player_features` (age, position, foot, height, nationality, EU flag) plus `anchor_population`, which replaces the old cross join and so wires slot 6 in at the same time. 8 tests. Not yet run against real parquet. |
 | 8 | Slot 2, value history | | todo | Current value, 12-month change, peak so far, days since last update, `years_of_history`. Null for newcomers by design (decision #6). |
 | 9 | Slot 3, last season's performance | | todo | Minutes, share of starts, goals and assists per 90. No cards (decision #12). |
-| 10 | Slot 4, context | | todo | **The project's thesis.** League strength, club strength rebuilt per club-year (decision #10), European participation from `games` (decision #11), value rank among same-position players at club and in league. |
+| 10 | Slot 4, context | Yunus | wip | **The project's thesis.** Done: club strength rebuilt per club-season (decision #10) and European participation from `games` (decision #11), both in `src/pvf/features/context.py`, 11 tests, validated on real data. Remaining: league strength, and value rank among same-position players at club and in league (decisions #17–18 explain why ranks were split off). |
 | 11 | Slot 5, health and moves | | todo | Injury aggregates from dates and durations, not the reason text (decision #7). Transfer flags and fees from `transfer_history`. |
 | 12 | Extend `tests/test_leakage.py` | | todo | Assert every new feature's source columns against `leakage.py`. Run it as each slot lands, not at the end. |
 

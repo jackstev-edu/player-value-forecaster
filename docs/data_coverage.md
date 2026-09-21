@@ -122,6 +122,17 @@ and `transfer_history` (123).
 
 ---
 
+## The Europa League share falls in 2022, and that is real football, not a data break
+
+`played_uel` sits at 0.21–0.24 of panel rows for anchors 2013–2021, then drops to 0.15 (2022),
+0.15 (2023), 0.13 (2024) and stays there. Nothing broke: UEFA launched the Conference League in
+2021-22, which took a third tier of clubs out of the Europa League. `played_uecl` picks them up,
+running at 3.4% of rows overall and effectively all of it from anchor 2022 onward. `played_ucl`
+is flat at 0.16–0.20 throughout, as it should be — the Champions League field did not change.
+
+Anyone who sees the `played_uel` step and reaches for the data-quality explanation should stop
+here. The three flags have to be read together.
+
 ## How to reproduce
 
 The measurements came from throwaway analysis scripts, not committed code. When Phase 1 lands,

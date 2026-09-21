@@ -11,6 +11,7 @@ from pvf.features.club_league import (
     player_club_season,
     players_at_anchor,
 )
+from pvf.features.context import add_context_features
 
 # Allowlist, not a blocklist: anything not named here stays out of the panel, so a new
 # snapshot column in players/ cannot leak in by being forgotten. See features/leakage.py.
@@ -132,7 +133,10 @@ def build_panel(tables: dict[str, pd.DataFrame], cfg: dict) -> pd.DataFrame:
 
     # >>> 3. LAST SEASON PERFORMANCE HERE: minutes, start share, G+A per 90 <<<
 
-    # >>> 4. CONTEXT FEATURES HERE: league strength, club strength, Euro comps, positional rank <<<
+    # Club strength and European participation; league strength and positional rank still to come
+    involvement = player_club_season(tables["game_lineups"], tables["appearances"],
+                                     tables["games"])
+    panel = add_context_features(panel, {**tables, "involvement": involvement}, cfg)
 
     # >>> 5. HEALTH AND MOVES HERE: days injured, transferred last window, fee <<<
 
