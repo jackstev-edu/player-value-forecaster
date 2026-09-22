@@ -34,11 +34,11 @@ Jack left numbered slots in `src/pvf/features/build_panel.py`; these fill them i
 | # | Task | Owner | Status | Notes |
 | --- | --- | --- | --- | --- |
 | 7 | Slot 1, player features | Yunus | done | `add_player_features` (age, position, foot, height, nationality, EU flag) plus `anchor_population`, which replaces the old cross join and so wires slot 6 in at the same time. 8 tests. Not yet run against real parquet. |
-| 8 | Slot 2, value history | | todo | Current value, 12-month change, peak so far, days since last update, `years_of_history`. Null for newcomers by design (decision #6). |
-| 9 | Slot 3, last season's performance | | todo | Minutes, share of starts, goals and assists per 90. No cards (decision #12). |
-| 10 | Slot 4, context | Yunus | wip | **The project's thesis.** Done: club strength rebuilt per club-season (decision #10) and European participation from `games` (decision #11), both in `src/pvf/features/context.py`, 11 tests, validated on real data. Remaining: league strength, and value rank among same-position players at club and in league (decisions #17–18 explain why ranks were split off). |
-| 11 | Slot 5, health and moves | | todo | Injury aggregates from dates and durations, not the reason text (decision #7). Transfer flags and fees from `transfer_history`. |
-| 12 | Extend `tests/test_leakage.py` | | todo | Assert every new feature's source columns against `leakage.py`. Run it as each slot lands, not at the end. |
+| 8 | Slot 2, value history | Yunus | done | `src/pvf/features/history.py`, 11 tests, validated on the real parquet. Peak so far, value vs peak, 12-month change, years of history, valuation count (#24). Newcomers take nulls by design — 10% of rows, median age 19.6 (#25). Days since update was already on the panel as `value_age_days`. |
+| 9 | Slot 3, last season's performance | Yunus | done | `src/pvf/features/performance.py`, 11 tests, validated on the real parquet. Starts and start share from `game_lineups`, goals and assists and G+A per 90 from `appearances` (#27, #29). No cards (#12). Minutes and squad games were already on the panel from the population step. Season 2012 takes null starts, not zero — fifth trap in `docs/data_coverage.md`. |
+| 10 | Slot 4, context | Yunus | done | **The project's thesis, complete.** `src/pvf/features/context.py`, 27 tests, validated on the real parquet: club strength per club-season (#10), league strength built from it (#20), `club_value_share_of_league` (#21), European participation from `games` (#11), and positional rank at club and league (#22, #23). |
+| 11 | Slot 5, health and moves | Yunus | done | `src/pvf/features/health.py`, 20 tests, validated on the real parquet. Days injured, spells and injured-at-anchor from `player_injuries`; permanent/loan flags and fee from `transfer_history` (#30–#32). Reason text unread (#7). Both tables under-cover the panel, so untracked players take nulls plus a `has_*_record` flag. Injury coverage drifts across the train/test split — sixth trap, and #33 for what task 15 must do about it. Also fixed `load.py`, which parsed dates for `transfers` but not for `transfer_history`; `tests/test_load.py` is new. |
+| 12 | Extend `tests/test_leakage.py` | Yunus | done | `leakage.FEATURE_SOURCES` declares every module's source columns and the suite fails if a module in `pvf/features` has no row (#35). Paired with a behavioural test that rebuilds the panel with post-anchor events added and asserts no feature column moves — it found a real leak in the slot 5 coverage flags on its first run (#34). 8 tests. |
 
 ## Phase 3 — models and evaluation
 
@@ -63,6 +63,7 @@ Jack left numbered slots in `src/pvf/features/build_panel.py`; these fill them i
 | 19 | **Manual dataset, 500+ rows** | | todo | **Rubric requirement and currently blocking.** The only task here with no dependencies, so it can start immediately. Candidates in `docs/decisions.md`; the human-baseline-forecast option is strongest because it doubles as a benchmark for the report. |
 | 20 | Confirm the second model family | | todo | `chronos` is proposed in the config. Check it against the rubric. |
 | 21 | Deadline, deliverables, rubric questions | | todo | Parked 2026-09-19. The 500-vs-1000 sample discrepancy needs an instructor answer. |
+| 22 | Positional rank, the rest of slot 4 | Yunus | done | Rank, peer count and percentile against same-position players at the player's club and in his league, per anchor (#22). Uncovered a fourth silent trap: `players.position` uses the string "Missing" rather than null, which was producing rank-1-of-1 groups (#23). |
 
 ---
 

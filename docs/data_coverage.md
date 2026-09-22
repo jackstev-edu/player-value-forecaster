@@ -44,7 +44,7 @@ History depth is a feature, not a filter — see decision #6 for why the ≥8 co
 
 ---
 
-## The three traps
+## The six traps
 
 ### 1. `clubs.total_market_value` is 100% empty
 
@@ -99,7 +99,8 @@ played for in that season. This is task 6 on the roadmap and it gates every cont
 against that single row and the table needs no other defence.
 
 **Identification:** players are uniquely identified by name + birth date. `country_of_citizenship`
-is 99.3% filled across 172 countries; `date_of_birth` 99.9%; `position` 100%; `foot` 95.0%;
+is 99.3% filled across 172 countries; `date_of_birth` 99.9%; `position` has no nulls but
+**586 players carry the literal string `"Missing"`** (see the fourth trap); `foot` 95.0%;
 `height_in_cm` 95.3% but **4.7% are zero, meaning unknown**.
 
 **Injuries:** 143,195 rows over 34,561 players. `days_missed` and `games_missed` are 100% filled
@@ -122,6 +123,73 @@ and `transfer_history` (123).
 
 ---
 
+### 4. `players.position` says "Missing" instead of null
+
+`position` has zero nulls, which reads as 100% coverage and is how it was first recorded here.
+It is not: **586 of 50,149 players carry the literal string `"Missing"`**, with `sub_position`
+null alongside. Counting nulls will never find them.
+
+This bites anything that groups by position. Ranking players within position put these 586 in
+groups of one or two, handing each one rank 1 and a percentile of 1.0 — a model reads that as
+"the best attacker at his club" when it means "we do not know what he plays". 57 of them reach
+the panel.
+
+**Do instead:** treat `"Missing"` as unknown, not as a position. `pvf.features.context`
+keeps the set in `UNKNOWN_POSITIONS` and nulls the rank columns for those rows. The signature
+that it is working: `position_peers_in_league` has a minimum of 22 (the thinnest real group is
+goalkeepers) rather than 1.
+
+### 5. `game_lineups` does not exist for season 2012, so starts read as zero
+
+`game_lineups` begins on **2013-07-02**. `appearances` begins a year earlier, on 2012-07-03, and
+season 2012 is in the panel because of that: it is the prior season for the 2013 anchor, and the
+squad rule falls back to appearances for it (decision #15).
+
+The two tables do not cover the same span, and only `game_lineups` says who *started*. Counting
+starting-XI rows per player-season therefore returns **0 for every player in season 2012** — not
+because they were substitutes, but because the table has no rows to count. A model reads a
+column of zeros as "nobody in this season ever started". **4,278 panel rows** are drawn from
+season 2012, 6.1% of the panel.
+
+**Do instead:** null the start columns for any season `game_lineups` does not cover, rather than
+letting the count stand. `pvf.features.performance` checks which seasons appear in the joined
+lineup frame and nulls `starts` outside them; within a covered season a player with no lineup row
+genuinely was not named, and keeps his zero. Minutes, goals and assists come from `appearances`
+and are unaffected, so season 2012 rows keep every other performance column.
+
+### 6. Injury coverage grows across the window, and collapses at the 2026 anchor
+
+`player_injuries` covers whoever Transfermarkt had recorded by scrape time, and that is a
+different set of players in 2013 than in 2023. Measured per anchor, on panel rows:
+
+| Anchor | 2013 | 2016 | 2019 | 2020 | 2022 | 2024 | 2025 | 2026 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Share of rows with an injury on record *by that anchor* | 0.410 | 0.480 | 0.630 | 0.663 | 0.727 | 0.722 | **0.752** | 0.700 |
+| Share with an injury in the 12 months before | 0.253 | 0.305 | 0.414 | 0.430 | 0.501 | 0.484 | 0.513 | **0.136** |
+| Mean days injured in that window, over rows on record | 34.8 | 38.2 | 39.5 | 37.9 | 37.7 | 41.2 | **42.2** | 7.6 |
+
+The apparent injury rate **doubles** between 2013 and 2021. Footballers did not become twice as
+fragile; the record got fuller. Our split puts training at anchors ≤ 2020 and testing at
+2022–2025, so a model learns injury from the thin half of the record and is scored on the full
+half.
+
+The first row rises for two reasons at once and they cannot be separated: the scrape covers
+more players over time, *and* a 2013 anchor has simply had fewer years in which an injury could
+be recorded. Read it as "has an injury history by now", which is what the feature means, not as
+a coverage rate.
+
+The 2026 anchor is the sharp version of the same thing: `player_injuries` ends **2025-12-22**,
+so the 12 months before 1 July 2026 contain barely six months of data. Injury rate falls to
+0.136 and mean days to 7.5 — not a healthy season, a truncated file. The 2026 anchor already
+carries no targets and is unfit for training; this makes it wrong for **serving** too unless
+the injury columns are suppressed for it.
+
+**Do instead:** carry `has_injury_record` so the model can separate "not hurt" from "not
+tracked", and treat the injury group as one block in the task 15 ablation, where the time-split
+backtest will show whether it survives the drift. Do not read a raw rise in `days_injured_12m`
+across seasons as a finding about football. The same caution applies, much more weakly, to
+transfers: coverage there runs 0.885 → 0.962 and is close to flat from 2018 on.
+
 ## The Europa League share falls in 2022, and that is real football, not a data break
 
 `played_uel` sits at 0.21–0.24 of panel rows for anchors 2013–2021, then drops to 0.15 (2022),
@@ -132,6 +200,14 @@ is flat at 0.16–0.20 throughout, as it should be — the Champions League fiel
 
 Anyone who sees the `played_uel` step and reaches for the data-quality explanation should stop
 here. The three flags have to be read together.
+
+## League sizes change, and every change in our window is a real one
+
+`league_club_count` is not constant per league, which looks like a mapping bug and is not.
+Across 2012-2025 anchors: Ligue 1 20 -> 18 (2023-24), the Super Lig 18 -> 21 (2023-24), the
+Belgian First Division 16 -> 18, the Primeira Liga 16 -> 18. The Premier League, Serie A, La
+Liga hold at 20 and the Bundesliga and Eredivisie at 18 throughout, which is correct. Any count
+outside 16-21 would be the bug; none appears.
 
 ## How to reproduce
 

@@ -11,7 +11,10 @@ from pvf.features.club_league import (
     player_club_season,
     players_at_anchor,
 )
-from pvf.features.context import add_context_features
+from pvf.features.context import add_context_features, positional_ranks
+from pvf.features.health import add_health_and_moves
+from pvf.features.history import add_value_history
+from pvf.features.performance import add_performance_features
 
 # Allowlist, not a blocklist: anything not named here stays out of the panel, so a new
 # snapshot column in players/ cannot leak in by being forgotten. See features/leakage.py.
@@ -129,15 +132,24 @@ def build_panel(tables: dict[str, pd.DataFrame], cfg: dict) -> pd.DataFrame:
 
     panel = add_player_features(panel, tables["players"], tables.get("player_profiles"))
 
-    # >>> 2. VALUE HISTORY FEATURES HERE: 12 month change, peak so far, days since update <<<
+    # Slot 2: the player's own past. Days since update is already here as value_age_days
+    panel = add_value_history(panel, tables["player_valuations"],
+                              p["max_value_staleness_days"])
 
-    # >>> 3. LAST SEASON PERFORMANCE HERE: minutes, start share, G+A per 90 <<<
+    # Slot 3: last season on the field. Minutes and squad games arrived with the
+    # population, so this adds the shape of them: starts and scoring per 90.
+    panel = add_performance_features(panel, tables)
 
-    # Club strength and European participation; league strength and positional rank still to come
+    # Slot 4: club strength, league strength, European participation, positional rank
     involvement = player_club_season(tables["game_lineups"], tables["appearances"],
                                      tables["games"])
     panel = add_context_features(panel, {**tables, "involvement": involvement}, cfg)
+    # Ranks come last: they compare panel members against each other, so they need the
+    # population and the anchor values already settled
+    panel = positional_ranks(panel)
 
-    # >>> 5. HEALTH AND MOVES HERE: days injured, transferred last window, fee <<<
+    # Slot 5: time lost and moves made. Both source tables under-cover the panel, so
+    # these columns are null rather than zero where the player is not tracked.
+    panel = add_health_and_moves(panel, tables)
 
     return panel.reset_index(drop=True)

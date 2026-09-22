@@ -10,6 +10,10 @@ DATE_COLUMNS = {
     "appearances": ["date"],
     "games": ["date"],
     "transfers": ["transfer_date"],
+    # player-scores calls this table `transfers`; football-datasets calls its own
+    # `transfer_history`. Both need parsing, and a missed one fails quietly: ISO
+    # date strings still compare correctly, so only a .dt call gives the gap away.
+    "transfer_history": ["transfer_date"],
     "players": ["date_of_birth"],
     "player_injuries": ["from_date", "end_date"],
     "player_market_value": ["date_unix"],
