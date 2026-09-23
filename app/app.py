@@ -4,6 +4,7 @@ Reads only the prediction bundle in ./predictions, never the model,
 so the Space stays fast and the pipeline can change independently.
 """
 import json
+from datetime import datetime
 from pathlib import Path
 
 import gradio as gr
@@ -109,6 +110,28 @@ def make_card(pid: int) -> str:
             f"| Season | Median | Likely range |\n|---|---|---|\n{rows}")
 
 
+def make_footer(manifest: dict) -> str:
+    """Credits, coursework notice and bundle stamp shown under everything."""
+    version = manifest.get("model_version") or "unknown"
+    try:
+        # Manifest stamps are ISO 8601; render them as a short readable date
+        built = datetime.fromisoformat(manifest["created_at"]).strftime("%d %b %Y").lstrip("0")
+    except (KeyError, TypeError, ValueError):
+        built = "unknown"
+    kaggle = "https://www.kaggle.com/datasets"
+    # Credits open in a new tab so filter state survives
+    return (
+        '<p>Data: Transfermarkt, via the Kaggle datasets '
+        f'<a href="{kaggle}/davidcariboo/player-scores" target="_blank" rel="noopener">player-scores</a>'
+        ' by davidcariboo and '
+        f'<a href="{kaggle}/xfkzujqjvx97n/football-datasets" target="_blank" rel="noopener">football-datasets</a>'
+        ' by salimt.</p>'
+        '<p>Coursework for CMU 24-679 (Yunus Polatoglu &amp; Jack Stevens). '
+        'Not for transfer or betting decisions.</p>'
+        f'<p>Model {version}, built {built}.</p>'
+    )
+
+
 def on_select(ids: list[int], evt: gr.SelectData):
     """Row click handler; evt.index is [row, col] in the visible table."""
     pid = ids[evt.index[0]]
@@ -159,11 +182,10 @@ with gr.Blocks(title="Player value forecaster") as demo:
             "Each forecast predicts the change in value 1, 2 and 3 seasons after the "
             "1 July snapshot. The shaded band is the range the model expects the value to land "
             "in 8 times out of 10. Models were backtested on later seasons than they were "
-            "trained on.\n\n"
-            "Data: Transfermarkt, via the Kaggle datasets *player-scores* (davidcariboo) and "
-            "*football-datasets* (salimt). For coursework (CMU 24-679), not for transfer or "
-            f"betting decisions.\n\nBundle: `{MANIFEST.get('model_version')}`, "
-            f"built {MANIFEST.get('created_at')}.")
+            "trained on.")
+
+    # Footer sits outside every container so it stays visible at all times
+    gr.HTML(make_footer(MANIFEST), elem_classes="pvf-foot")
 
     filters = [league, country, nation, position, age_min, age_max]
     for comp in filters:

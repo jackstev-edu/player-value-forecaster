@@ -20,10 +20,21 @@
   font-size: 1.7rem; color: #14402F; margin-bottom: 2px;
 }
 
+/* Standing credit line under the whole app, quiet enough to ignore */
+.pvf-foot {
+  margin-top: 22px; padding-top: 10px; border-top: 1px solid #14402F;
+  font-size: 0.82rem; line-height: 1.5; color: #6B7A72;
+}
+.pvf-foot p { margin: 3px 0; }
+.pvf-foot a { color: #14402F; text-decoration: none; }
+.pvf-foot a:hover { text-decoration: underline; }
+
 @media (prefers-color-scheme: dark) {
   .pvf-head h1, .pvf-card h3 { color: #9FD3B5; }
   .pvf-head p { color: #C9D1CC; }
   .pvf-mock { background: #3A3219; color: #F2F3EC; }
+  .pvf-foot { border-top-color: #3E7A5B; color: #9AA8A1; }
+  .pvf-foot a { color: #9FD3B5; }
 }
 
 /* Gradio defaults tables to monospace; body face reads better here */
