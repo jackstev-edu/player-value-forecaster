@@ -13,6 +13,15 @@ import plotly.graph_objects as go
 
 BUNDLE_DIR = Path(__file__).parent / "predictions"
 MAX_ROWS = 200
+AGE_FLOOR, AGE_CEILING = 15, 45
+
+# Columns the table always shows, even when no player matches
+COLUMNS = ["Player", "Age", "Position", "Club", "League", "Nationality", "Value"]
+
+CARD_PROMPT = "Select a player in the table."
+CARD_GONE = "That player isn't in the current results. Select another player in the table."
+CARD_MISSING = "That player could not be found in this bundle. Select another player in the table."
+CARD_STALE = "That row is no longer in the table. Select another player in the table."
 
 # Palette: pitch green, chalk lines, gold for the forecast band
 PITCH, CHALK, INK, GRASS, GOLD, MUTED = "#14402F", "#F2F3EC", "#17201C", "#3E7A5B", "#D4A72C", "#6B7A72"
@@ -27,11 +36,27 @@ def load_bundle(bundle_dir: Path = BUNDLE_DIR):
     return players, history, forecasts, manifest
 
 
+def build_lookups(players, history, forecasts):
+    """Index every table by player_id so a click never scans a frame."""
+    by_history = {int(pid): group.sort_values("date")
+                  for pid, group in history.groupby("player_id", sort=False)}
+    by_forecast = {int(pid): group.sort_values("horizon")
+                   for pid, group in forecasts.groupby("player_id", sort=False)}
+    # to_dict keeps Timestamps intact, unlike a list of numpy records
+    by_player = {int(pid): row for pid, row
+                 in players.set_index("player_id", drop=False).to_dict("index").items()}
+    return by_history, by_forecast, by_player
+
+
 PLAYERS, HISTORY, FORECASTS, MANIFEST = load_bundle()
+HISTORY_BY_ID, FORECASTS_BY_ID, PLAYER_BY_ID = build_lookups(PLAYERS, HISTORY, FORECASTS)
 
 
-def fmt_eur(v: float) -> str:
+def fmt_eur(v) -> str:
     """Transfermarkt style money, e.g. 12.5m or 750k."""
+    # Sparse bundles carry gaps; never let them render as nan
+    if v is None or pd.isna(v):
+        return "unknown"
     return f"€{v / 1e6:.1f}m" if v >= 1e6 else f"€{v / 1e3:.0f}k"
 
 
@@ -39,16 +64,39 @@ def options(col: str) -> list[str]:
     return sorted(PLAYERS[col].dropna().unique().tolist())
 
 
-def filter_players(leagues, countries, nations, positions, age_min, age_max):
-    """Apply sidebar filters and return the table, id order and a count line."""
+def coerce_age(value, default: int) -> int:
+    """Sliders may send None or floats, so normalise to a plain int."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def no_match_message(lo: int, hi: int, active: list[str]) -> str:
+    """Name the live filters so the user knows what to loosen."""
+    msg = f"No players match. Try widening the age range (currently {lo} to {hi})"
+    if active:
+        msg += " or removing a filter: " + ", ".join(active)
+    return msg + "."
+
+
+def filter_players(leagues, countries, nations, positions, age_min, age_max, selected_id):
+    """Filter the roster and keep table, ids, count and selection in step."""
     df = PLAYERS
-    # Empty selection means no filter on that field
-    for col, chosen in [("league_name", leagues), ("league_country", countries),
-                        ("nationality", nations), ("position", positions)]:
+    active = []
+    # None and an empty list both mean no filter on that field
+    for label, col, chosen in (("League", "league_name", leagues),
+                               ("League country", "league_country", countries),
+                               ("Nationality", "nationality", nations),
+                               ("Position", "position", positions)):
         if chosen:
             df = df[df[col].isin(chosen)]
-    lo, hi = sorted((age_min, age_max))
+            active.append(label)
+    lo, hi = sorted((coerce_age(age_min, AGE_FLOOR), coerce_age(age_max, AGE_CEILING)))
     df = df[df["age"].between(lo, hi)]
+
+    # Judge the selection against everyone, not the slice on screen
+    matched_ids = set(df["player_id"].tolist())
     total = len(df)
     df = df.sort_values("current_value_eur", ascending=False).head(MAX_ROWS)
 
@@ -56,36 +104,64 @@ def filter_players(leagues, countries, nations, positions, age_min, age_max):
         "Player": df["name"], "Age": df["age"], "Position": df["sub_position"],
         "Club": df["club_name"], "League": df["league_name"], "Nationality": df["nationality"],
         "Value": df["current_value_eur"].map(fmt_eur),
-    })
-    shown = f" (showing the top {MAX_ROWS} by value)" if total > MAX_ROWS else ""
-    count = f"**{total} players** match these filters{shown}. Select a row to see the forecast."
-    return view, df["player_id"].tolist(), count
+    }, columns=COLUMNS)
+    if total:
+        shown = f" (showing the top {MAX_ROWS} by value)" if total > MAX_ROWS else ""
+        count = f"**{total} players** match these filters{shown}. Select a row to see the forecast."
+    else:
+        count = no_match_message(lo, hi, active)
+
+    if selected_id is None:
+        chart_out, card_out, sel_out = None, CARD_PROMPT, None
+    elif int(selected_id) in matched_ids:
+        # Selection survived the new filters, so leave its panels alone
+        chart_out, card_out, sel_out = gr.skip(), gr.skip(), selected_id
+    else:
+        chart_out, card_out, sel_out = None, CARD_GONE, None
+    return view, df["player_id"].tolist(), count, chart_out, card_out, sel_out
 
 
-def make_chart(pid: int) -> go.Figure:
+def history_points(pid: int, player: dict):
+    """Value history as x and y lists, or the current value alone."""
+    h = HISTORY_BY_ID.get(pid)
+    if h is None or h.empty:
+        # Players with no history still anchor on the players table row
+        return [player["value_date"]], [player["current_value_eur"]]
+    return h["date"].tolist(), h["value_eur"].tolist()
+
+
+def make_chart(pid: int):
     """Value history line plus 1 to 3 season forecast with a 10 to 90% band."""
-    h = HISTORY[HISTORY["player_id"] == pid].sort_values("date")
-    f = FORECASTS[FORECASTS["player_id"] == pid].sort_values("horizon")
-    last_date, last_val = h["date"].iloc[-1], h["value_eur"].iloc[-1]
-
-    # Forecast traces start at the last known value so lines connect
-    fx = [last_date] + f["target_date"].tolist()
-    lo = [last_val] + f["p10_eur"].tolist()
-    mid = [last_val] + f["p50_eur"].tolist()
-    hi = [last_val] + f["p90_eur"].tolist()
+    player = PLAYER_BY_ID.get(pid)
+    if player is None:
+        return None
+    hx, hy = history_points(pid, player)
+    f = FORECASTS_BY_ID.get(pid)
+    has_forecast = f is not None and not f.empty
+    last_date, last_val = hx[-1], hy[-1]
     m = 1e6
 
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=fx + fx[::-1], y=[v / m for v in hi + lo[::-1]], fill="toself", mode="lines",
-                             fillcolor="rgba(212,167,44,0.22)", line=dict(width=0),
-                             hoverinfo="skip", name="10 to 90% range"))
-    fig.add_trace(go.Scatter(x=h["date"], y=h["value_eur"] / m, mode="lines+markers",
+    if has_forecast:
+        # Forecast traces start at the last known value so lines connect
+        fx = [last_date] + f["target_date"].tolist()
+        lo = [last_val] + f["p10_eur"].tolist()
+        mid = [last_val] + f["p50_eur"].tolist()
+        hi = [last_val] + f["p90_eur"].tolist()
+        fig.add_trace(go.Scatter(x=fx + fx[::-1], y=[v / m for v in hi + lo[::-1]], fill="toself",
+                                 mode="lines", fillcolor="rgba(212,167,44,0.22)", line=dict(width=0),
+                                 hoverinfo="skip", name="10 to 90% range"))
+    fig.add_trace(go.Scatter(x=hx, y=[v / m for v in hy], mode="lines+markers",
                              line=dict(color=GRASS, width=2.5, shape="hv"), marker=dict(size=5),
                              name="Market value", hovertemplate="%{x|%b %Y}<br>€%{y:.1f}m<extra></extra>"))
-    fig.add_trace(go.Scatter(x=fx, y=[v / m for v in mid], mode="lines+markers",
-                             line=dict(color=GOLD, width=2.5, dash="dash"), marker=dict(size=7),
-                             name="Median forecast", hovertemplate="%{x|%b %Y}<br>€%{y:.1f}m<extra></extra>"))
-    fig.add_vline(x=last_date, line=dict(color=MUTED, width=1, dash="dot"))
+    if has_forecast:
+        fig.add_trace(go.Scatter(x=fx, y=[v / m for v in mid], mode="lines+markers",
+                                 line=dict(color=GOLD, width=2.5, dash="dash"), marker=dict(size=7),
+                                 name="Median forecast",
+                                 hovertemplate="%{x|%b %Y}<br>€%{y:.1f}m<extra></extra>"))
+        # Dotted rule marks where observed history stops and forecast starts
+        if pd.notna(last_date):
+            fig.add_vline(x=last_date, line=dict(color=MUTED, width=1, dash="dot"))
     fig.update_layout(
         height=420, margin=dict(l=10, r=10, t=10, b=10), hovermode="x unified",
         plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
@@ -99,15 +175,27 @@ def make_chart(pid: int) -> go.Figure:
 
 def make_card(pid: int) -> str:
     """Short markdown summary of the selected player and forecast numbers."""
-    p = PLAYERS.loc[PLAYERS["player_id"] == pid].iloc[0]
-    f = FORECASTS[FORECASTS["player_id"] == pid].sort_values("horizon")
-    rows = "\n".join(
-        f"| {r.target_date:%b %Y} | {fmt_eur(r.p50_eur)} | {fmt_eur(r.p10_eur)} to {fmt_eur(r.p90_eur)} |"
-        for r in f.itertuples())
-    return (f"### {p['name']}\n"
-            f"{p['sub_position']}, age {p['age']}, {p['club_name']} ({p['league_name']})\n\n"
-            f"Value now: **{fmt_eur(p['current_value_eur'])}** (updated {p['value_date']:%b %Y})\n\n"
-            f"| Season | Median | Likely range |\n|---|---|---|\n{rows}")
+    player = PLAYER_BY_ID.get(pid)
+    if player is None:
+        return CARD_MISSING
+    h = HISTORY_BY_ID.get(pid)
+    f = FORECASTS_BY_ID.get(pid)
+    value_date = player["value_date"]
+    updated = f"{value_date:%b %Y}" if pd.notna(value_date) else "date unknown"
+    parts = [f"### {player['name']}\n"
+             f"{player['sub_position']}, age {player['age']}, {player['club_name']} "
+             f"({player['league_name']})\n\n"
+             f"Value now: **{fmt_eur(player['current_value_eur'])}** (updated {updated})"]
+    if f is not None and not f.empty:
+        rows = "\n".join(
+            f"| {r.target_date:%b %Y} | {fmt_eur(r.p50_eur)} | {fmt_eur(r.p10_eur)} to {fmt_eur(r.p90_eur)} |"
+            for r in f.itertuples())
+        parts.append(f"| Season | Median | Likely range |\n|---|---|---|\n{rows}")
+    else:
+        parts.append("No forecast is available for this player.")
+    if h is None or h.empty:
+        parts.append("No value history is available for this player.")
+    return "\n\n".join(parts)
 
 
 def make_footer(manifest: dict) -> str:
@@ -134,8 +222,12 @@ def make_footer(manifest: dict) -> str:
 
 def on_select(ids: list[int], evt: gr.SelectData):
     """Row click handler; evt.index is [row, col] in the visible table."""
-    pid = ids[evt.index[0]]
-    return make_chart(pid), make_card(pid)
+    row = evt.index[0] if evt is not None and evt.index else None
+    # A click can land after the table shrank underneath the user
+    if not ids or row is None or not 0 <= row < len(ids):
+        return None, CARD_STALE, None
+    pid = int(ids[row])
+    return make_chart(pid), make_card(pid), pid
 
 
 THEME = gr.themes.Base(
@@ -147,6 +239,7 @@ CSS = (Path(__file__).parent / "style.css").read_text(encoding="utf-8")
 
 with gr.Blocks(title="Player value forecaster") as demo:
     ids_state = gr.State([])
+    selected_state = gr.State(None)
 
     gr.HTML(f"""
       <header class="pvf-head">
@@ -164,8 +257,8 @@ with gr.Blocks(title="Player value forecaster") as demo:
             country = gr.Dropdown(options("league_country"), multiselect=True, label="League country")
             nation = gr.Dropdown(options("nationality"), multiselect=True, label="Nationality")
             position = gr.CheckboxGroup(options("position"), label="Position")
-            age_min = gr.Slider(15, 45, value=15, step=1, label="Youngest age")
-            age_max = gr.Slider(15, 45, value=45, step=1, label="Oldest age")
+            age_min = gr.Slider(AGE_FLOOR, AGE_CEILING, value=AGE_FLOOR, step=1, label="Youngest age")
+            age_max = gr.Slider(AGE_FLOOR, AGE_CEILING, value=AGE_CEILING, step=1, label="Oldest age")
             reset = gr.Button("Clear filters", variant="secondary")
 
         with gr.Column(scale=3):
@@ -175,7 +268,7 @@ with gr.Blocks(title="Player value forecaster") as demo:
             with gr.Row(equal_height=False):
                 chart = gr.Plot(show_label=False, scale=3)
                 with gr.Column(scale=2, min_width=320):
-                    card = gr.Markdown("Select a player in the table.", elem_classes="pvf-card")
+                    card = gr.Markdown(CARD_PROMPT, elem_classes="pvf-card")
 
     with gr.Accordion("How the forecast works", open=False):
         gr.Markdown(
@@ -188,11 +281,15 @@ with gr.Blocks(title="Player value forecaster") as demo:
     gr.HTML(make_footer(MANIFEST), elem_classes="pvf-foot")
 
     filters = [league, country, nation, position, age_min, age_max]
-    for comp in filters:
-        comp.change(filter_players, filters, [table, ids_state, count])
-    table.select(on_select, ids_state, [chart, card])
-    reset.click(lambda: (None, None, None, None, 15, 45), None, filters)
-    demo.load(filter_players, filters, [table, ids_state, count])
+    # Explicit triggers keep selected_state an input without retriggering here
+    gr.on(triggers=[comp.change for comp in filters] + [demo.load],
+          fn=filter_players, inputs=filters + [selected_state],
+          outputs=[table, ids_state, count, chart, card, selected_state],
+          trigger_mode="always_last", api_name="filter_players")
+    table.select(on_select, ids_state, [chart, card, selected_state], api_name="select_player")
+    # Clearing six filters fires six changes; always_last collapses them
+    reset.click(lambda: (None, None, None, None, AGE_FLOOR, AGE_CEILING), None, filters,
+                api_name="reset_filters")
 
 if __name__ == "__main__":
     demo.launch(theme=THEME, css=CSS)
