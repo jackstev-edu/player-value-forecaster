@@ -206,7 +206,7 @@ def test_search_ignores_case_and_accents(app, monkeypatch, query):
     pid = with_accented_name(app, monkeypatch)
     _view, ids, count, _chart, _card, _selected = call_filter(app, search=query)
     assert ids == [pid]
-    assert "**1 players**" in count
+    assert "**1 player** matches" in count
 
 
 def test_search_folds_letters_nfkd_keeps_whole(app):
@@ -339,3 +339,92 @@ def test_on_select_uses_the_chosen_horizon(app):
     ids = call_filter(app)[1]
     _chart, card, _selected = app.on_select(ids, "3 seasons", FakeSelect(0))
     assert card == app.make_card(ids[0], 3)
+
+
+def test_initial_view_opens_the_featured_player(app):
+    view, ids, count, chart, card, selected = app.initial_view()
+    assert selected == app.FEATURED_ID == top_value_id(app)
+    assert isinstance(chart, go.Figure)
+    assert app.PLAYER_BY_ID[selected]["name"] in card
+    # Table and count match a plain default filter run
+    expected = app.filter_players(*app.default_filters(), None)
+    pd.testing.assert_frame_equal(view, expected[0])
+    assert ids == expected[1] and count == expected[2]
+
+
+def test_load_is_not_a_filter_trigger(app):
+    # demo.load must only run initial_view, never filter_players as well
+    load_fns = [fn.fn.__name__ for fn in app.demo.fns.values()
+                if any(t[1] == "load" for t in fn.targets)]
+    assert load_fns == ["initial_view"]
+
+
+RULE_CHECKS = {
+    "Established star": (lambda p: p["current_value_eur"].notna(), "current_value_eur", True),
+    "Rising young player": (lambda p: (p["age"] <= 23) & (p["current_value_eur"] >= 1e6),
+                            "change_1", True),
+    "Veteran in decline": (lambda p: (p["age"] >= 31) & (p["current_value_eur"] >= 1e6),
+                           "change_1", False),
+    "Hardest to predict": (lambda p: p["current_value_eur"] >= 1e6, "width_1", True),
+}
+
+
+def test_example_picks_are_distinct_and_satisfy_their_rules(app):
+    picks = app.EXAMPLES
+    assert [label for label, _pid, _name in picks] == list(RULE_CHECKS)
+    ids = [pid for _label, pid, _name in picks]
+    assert len(set(ids)) == 4
+    players = app.PLAYERS
+    taken = set()
+    for label, pid, name in picks:
+        qualifies, col, largest = RULE_CHECKS[label]
+        row = players.set_index("player_id").loc[pid]
+        assert row["name"] == name
+        assert qualifies(players)[players["player_id"] == pid].all()
+        # Best among the qualifying players no earlier rule already took
+        pool = players[qualifies(players) & ~players["player_id"].isin(taken)][col].dropna()
+        assert row[col] == (pool.max() if largest else pool.min())
+        taken.add(pid)
+    assert picks[0][1] == app.FEATURED_ID
+
+
+def test_rule_with_no_candidates_is_skipped(app):
+    # Cap every age at 30 so no veteran exists
+    young = app.PLAYERS.assign(age=app.PLAYERS["age"].clip(upper=30))
+    picks = app.pick_examples(young)
+    labels = [label for label, _pid, _name in picks]
+    assert "Veteran in decline" not in labels and len(labels) == 3
+    assert len({pid for _label, pid, _name in picks}) == 3
+    assert app.pick_examples(app.PLAYERS.iloc[0:0]) == []
+
+
+@pytest.mark.parametrize("index", range(4))
+def test_clicking_an_example_opens_that_player(app, index):
+    label, pid, name = app.EXAMPLES[index]
+    out = app.open_example(name, pid)
+    n = len(app.default_filters())
+    assert len(out) == n + 6
+    # Search holds the name and every other filter is back to default
+    assert out[0] == name
+    assert list(out[1:n]) == app.default_filters()[1:]
+    view, ids, _count, chart, card, selected = out[n:]
+    assert pid in ids and set(view["Player"]) == {name}
+    assert selected == pid
+    assert isinstance(chart, go.Figure) and name in card
+
+
+def test_example_with_repeated_name_opens_the_exact_id(app, monkeypatch):
+    first, second = app.PLAYERS["player_id"].iloc[:2].astype(int).tolist()
+    players = app.PLAYERS.copy()
+    players.loc[players.index[:2], "name"] = "Same Name"
+    monkeypatch.setattr(app, "PLAYERS", app.add_derived_columns(players, app.FORECASTS))
+    for pid in (first, second):
+        # Hidden Number may deliver a float, which must still resolve
+        out = app.open_example("Same Name", float(pid))
+        assert sorted(out[-5]) == sorted([first, second])
+        assert out[-1] == pid
+
+
+def test_example_with_unknown_id_shows_missing_card(app):
+    out = app.open_example("anything", None)
+    assert out[-3] is None and out[-2] == app.CARD_MISSING and out[-1] is None

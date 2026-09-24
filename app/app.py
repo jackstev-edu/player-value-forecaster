@@ -197,7 +197,9 @@ def filter_players(search, leagues, countries, nations, positions, age_min, age_
     if total:
         shown = (f" (showing the first {MAX_ROWS}, sorted by {sort_by.lower()})"
                  if total > MAX_ROWS else "")
-        count = f"**{total} players** match these filters{shown}. Select a row to see the forecast."
+        # Example clicks often leave one match, so get the singular right
+        who = "**1 player** matches" if total == 1 else f"**{total} players** match"
+        count = f"{who} these filters{shown}. Select a row to see the forecast."
     else:
         count = no_match_message(lo, hi, active)
 
@@ -220,6 +222,78 @@ def reset_filters(selected_id):
     """Clear every filter and refresh the results in one single run."""
     defaults = default_filters()
     return (*defaults, *filter_players(*defaults, selected_id))
+
+
+def open_player(pid, horizon=DEFAULT_HORIZON):
+    """Chart, card and selection for one player id, guarding unknown ids."""
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return None, CARD_MISSING, None
+    if pid not in PLAYER_BY_ID:
+        return None, CARD_MISSING, None
+    return make_chart(pid), make_card(pid, horizon_of(horizon)), pid
+
+
+def featured_player_id(players):
+    """Highest current value, so a first visit never lands on a blank chart."""
+    ranked = players.dropna(subset=["current_value_eur"])
+    if ranked.empty:
+        return None
+    return int(ranked.sort_values(["current_value_eur", "player_id"],
+                                  ascending=[False, True])["player_id"].iloc[0])
+
+
+def initial_view():
+    """Page load: default table with the featured player already open."""
+    view, ids, count, *_ = filter_players(*default_filters(), None)
+    if FEATURED_ID is None:
+        return view, ids, count, None, CARD_PROMPT, None
+    return (view, ids, count, *open_player(FEATURED_ID))
+
+
+MIN_EXAMPLE_VALUE = 1e6
+
+
+def is_valued(p):
+    return p["current_value_eur"] >= MIN_EXAMPLE_VALUE
+
+
+# (label, who qualifies, ranking column, take the largest); star goes first
+# so it matches the featured player and no other rule can claim it
+EXAMPLE_RULES = [
+    ("Established star", lambda p: p["current_value_eur"].notna(), "current_value_eur", True),
+    ("Rising young player", lambda p: (p["age"] <= 23) & is_valued(p), "change_1", True),
+    ("Veteran in decline", lambda p: (p["age"] >= 31) & is_valued(p), "change_1", False),
+    ("Hardest to predict", is_valued, "width_1", True),
+]
+
+
+def pick_examples(players) -> list[tuple[str, int, str]]:
+    """Apply each rule in turn; players already picked are not eligible again."""
+    picks, taken = [], set()
+    for label, qualifies, col, largest in EXAMPLE_RULES:
+        pool = players[qualifies(players) & ~players["player_id"].isin(taken)].dropna(subset=[col])
+        # A rule that finds nobody is skipped rather than faked
+        if pool.empty:
+            continue
+        best = pool.sort_values([col, "player_id"], ascending=[not largest, True]).iloc[0]
+        picks.append((label, int(best["player_id"]), best["name"]))
+        taken.add(int(best["player_id"]))
+    return picks
+
+
+def open_example(name, player_id):
+    """Example click: search that name, reset the rest, open that exact id."""
+    values = default_filters()
+    values[0] = name or ""
+    view, ids, count, *_ = filter_players(*values, None)
+    # Names can repeat, so the hidden id decides which player opens
+    return (*values, view, ids, count, *open_player(player_id))
+
+
+FEATURED_ID = featured_player_id(PLAYERS)
+EXAMPLES = pick_examples(PLAYERS)
 
 
 def history_points(pid: int, player: dict):
@@ -333,8 +407,7 @@ def on_select(ids: list[int], horizon: str, evt: gr.SelectData):
     # A click can land after the table shrank underneath the user
     if not ids or row is None or not 0 <= row < len(ids):
         return None, CARD_STALE, None
-    pid = int(ids[row])
-    return make_chart(pid), make_card(pid, horizon_of(horizon)), pid
+    return open_player(ids[row], horizon)
 
 
 THEME = gr.themes.Base(
@@ -358,6 +431,17 @@ with gr.Blocks(title="Player value forecaster") as demo:
         gr.HTML('<div class="pvf-mock">Demo data: these players and forecasts are invented '
                 'while the models are being trained.</div>')
 
+    # Results are built first so the examples can target them, placed below
+    horizon = gr.Radio(list(HORIZONS), value=DEFAULT_HORIZON, label="Look ahead", render=False)
+    sort_by = gr.Dropdown(list(SORTS), value=DEFAULT_SORT, label="Sort by", render=False)
+    count = gr.Markdown(render=False)
+    table = gr.Dataframe(interactive=False, max_height=340, wrap=True, elem_classes="pvf-table",
+                         column_widths=["13%", "5%", "12%", "14%", "11%", "12%", "8%", "9%", "16%"],
+                         render=False)
+    chart = gr.Plot(show_label=False, scale=3, render=False)
+    card = gr.Markdown(CARD_PROMPT, elem_classes="pvf-card", render=False)
+    results = [table, ids_state, count, chart, card, selected_state]
+
     with gr.Row(equal_height=False):
         with gr.Column(scale=1, min_width=260, elem_classes="pvf-filters"):
             search = gr.Textbox(label="Search player", placeholder="Type part of a name",
@@ -369,19 +453,28 @@ with gr.Blocks(title="Player value forecaster") as demo:
             age_min = gr.Slider(AGE_FLOOR, AGE_CEILING, value=AGE_FLOOR, step=1, label="Youngest age")
             age_max = gr.Slider(AGE_FLOOR, AGE_CEILING, value=AGE_CEILING, step=1, label="Oldest age")
             reset = gr.Button("Clear filters", variant="secondary")
+            filters = [search, league, country, nation, position, age_min, age_max, horizon, sort_by]
+
+            # Carries the example's player id, since names alone can repeat
+            example_id = gr.Number(visible=False, precision=0)
+            if EXAMPLES:
+                # cache_examples=False matters: Spaces would otherwise cache and skip fn
+                gr.Examples([[name, pid] for _label, pid, name in EXAMPLES],
+                            inputs=[search, example_id], outputs=filters + results,
+                            fn=open_example, run_on_click=True, cache_examples=False,
+                            example_labels=[label for label, _pid, _name in EXAMPLES],
+                            label="Try an example", api_name="open_example")
 
         with gr.Column(scale=3):
             with gr.Row(equal_height=True, elem_classes="pvf-view"):
-                horizon = gr.Radio(list(HORIZONS), value=DEFAULT_HORIZON, label="Look ahead")
-                sort_by = gr.Dropdown(list(SORTS), value=DEFAULT_SORT, label="Sort by")
-            count = gr.Markdown()
-            table = gr.Dataframe(interactive=False, max_height=340, wrap=True, elem_classes="pvf-table",
-                                 column_widths=["13%", "5%", "12%", "14%", "11%", "12%", "8%",
-                                                "9%", "16%"])
+                horizon.render()
+                sort_by.render()
+            count.render()
+            table.render()
             with gr.Row(equal_height=False):
-                chart = gr.Plot(show_label=False, scale=3)
+                chart.render()
                 with gr.Column(scale=2, min_width=320):
-                    card = gr.Markdown(CARD_PROMPT, elem_classes="pvf-card")
+                    card.render()
 
     with gr.Accordion("How the forecast works", open=False):
         gr.Markdown(
@@ -393,12 +486,12 @@ with gr.Blocks(title="Player value forecaster") as demo:
     # Footer sits outside every container so it stays visible at all times
     gr.HTML(make_footer(MANIFEST), elem_classes="pvf-foot")
 
-    filters = [search, league, country, nation, position, age_min, age_max, horizon, sort_by]
-    results = [table, ids_state, count, chart, card, selected_state]
     # .input fires on user edits only, so code-set values never refilter
-    gr.on(triggers=[comp.input for comp in filters] + [demo.load],
+    gr.on(triggers=[comp.input for comp in filters],
           fn=filter_players, inputs=filters + [selected_state], outputs=results,
           trigger_mode="always_last", api_name="filter_players")
+    # First paint opens the featured player instead of an empty chart
+    demo.load(initial_view, None, results, api_name="initial_view")
     table.select(on_select, [ids_state, horizon], [chart, card, selected_state],
                  api_name="select_player")
     # One run sets every filter and its results together, no cascade
