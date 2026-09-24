@@ -1,53 +1,64 @@
 @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&display=swap');
 
-.pvf-head { padding: 8px 2px 4px; }
-.pvf-head h1 {
+/* Spaces loads this sheet before Gradio's, so ties lose. Each selector
+   outranks its Gradio rival outright: ".gradio-container-X *" (0,1,0)
+   resets borders, ".prose *" (0,2,0) and ".prose h1/h3/a" (0,2,1) set
+   colours. Locally Gradio re-prefixes rules with ".gradio-container ...
+   .contain", so selectors must not start with .gradio-container
+   themselves. Dark rules reuse the light selectors and win by coming later. */
+
+/* (0,2,2) beats .prose h1 at (0,2,1) */
+.prose header.pvf-head { padding: 8px 2px 4px; }
+.prose header.pvf-head h1 {
   font-family: "Barlow Condensed", "Arial Narrow", sans-serif;
   font-weight: 700; font-size: 2.6rem; line-height: 1.05;
   color: #14402F; margin: 0 0 6px;
 }
-.pvf-head p { max-width: 62ch; color: #4A5751; margin: 0; }
+.prose header.pvf-head p { max-width: 62ch; color: #4A5751; margin: 0; }
 
-.pvf-mock {
+/* (0,2,1) beats both the border reset and .prose * colour */
+.prose div.pvf-mock {
   border-left: 4px solid #D4A72C; background: #FBF4DF;
   padding: 8px 12px; color: #17201C; border-radius: 2px;
 }
 
-.pvf-filters { border-top: 3px solid #14402F; }
+/* Column divs sit outside .prose, so (0,1,1) clears the reset */
+div.pvf-filters { border-top: 3px solid #14402F; }
 
-.pvf-card h3 {
+/* Look ahead and sort sit on one quiet strip above the table */
+div.pvf-view { border-top: 3px solid #D4A72C; }
+
+/* Card class lands on the block and inner .prose; (0,2,2) beats .prose h3 */
+div.prose.pvf-card h3 {
   font-family: "Barlow Condensed", "Arial Narrow", sans-serif;
   font-size: 1.7rem; color: #14402F; margin-bottom: 2px;
 }
+/* Highlighted forecast row in the player card */
+div.prose.pvf-card strong { color: #14402F; }
 
-/* Standing credit line under the whole app, quiet enough to ignore */
-.pvf-foot {
+/* Standing credit line; inner .prose only, so the rule is drawn once */
+div.prose.pvf-foot {
   margin-top: 22px; padding-top: 10px; border-top: 1px solid #14402F;
   font-size: 0.82rem; line-height: 1.5; color: #6B7A72;
 }
-.pvf-foot p { margin: 3px 0; }
-.pvf-foot a { color: #14402F; text-decoration: none; }
-.pvf-foot a:hover { text-decoration: underline; }
+div.prose.pvf-foot p { margin: 3px 0; color: inherit; }
+/* (0,2,2) beats .prose a at (0,2,1) for colour and underline */
+div.prose.pvf-foot a { color: #14402F; text-decoration: none; }
+div.prose.pvf-foot a:hover { text-decoration: underline; }
 
 @media (prefers-color-scheme: dark) {
-  .pvf-head h1, .pvf-card h3 { color: #9FD3B5; }
-  .pvf-head p { color: #C9D1CC; }
-  .pvf-mock { background: #3A3219; color: #F2F3EC; }
-  .pvf-foot { border-top-color: #3E7A5B; color: #9AA8A1; }
-  .pvf-foot a { color: #9FD3B5; }
+  .prose header.pvf-head h1,
+  div.prose.pvf-card h3,
+  div.prose.pvf-card strong { color: #9FD3B5; }
+  .prose header.pvf-head p { color: #C9D1CC; }
+  .prose div.pvf-mock { background: #3A3219; color: #F2F3EC; }
+  /* Pitch green vanishes on the dark page, so lighten the border */
+  div.pvf-filters { border-top-color: #9FD3B5; }
+  div.prose.pvf-foot { border-top-color: #3E7A5B; color: #9AA8A1; }
+  div.prose.pvf-foot a { color: #9FD3B5; }
 }
 
 /* Gradio defaults tables to monospace; body face reads better here */
 .pvf-table { --font-mono: var(--font); }
-.pvf-table table, .pvf-table td, .pvf-table th, .pvf-table span { font-family: var(--font) !important; }
-/* Wrap between words only, so "Change" never splits into "Chang e" */
-.pvf-table td span, .pvf-table th span { word-break: normal !important; overflow-wrap: normal !important; }
-
-/* Look ahead and sort sit on one quiet strip above the table */
-.pvf-view { border-top: 3px solid #D4A72C; }
-
-/* Highlighted forecast row in the player card */
-.pvf-card strong { color: #14402F; }
-@media (prefers-color-scheme: dark) {
-  .pvf-card strong { color: #9FD3B5; }
-}
+/* (0,2,2) beats .wrap.svelte-* at (0,2,0), so "Change" never splits */
+.pvf-table th span.wrap { word-break: normal; overflow-wrap: normal; }
