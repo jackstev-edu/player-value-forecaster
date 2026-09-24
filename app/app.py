@@ -46,6 +46,8 @@ FLAG = "⚠ "
 
 # Palette: pitch green, chalk lines, gold for the forecast band
 PITCH, CHALK, INK, GRASS, GOLD, MUTED = "#14402F", "#F2F3EC", "#17201C", "#3E7A5B", "#D4A72C", "#6B7A72"
+# Helper and hint text colour; 7.6:1 on white, unlike stone 400
+SUBDUED = "#57534E"
 
 
 def load_bundle(bundle_dir: Path = BUNDLE_DIR):
@@ -360,6 +362,26 @@ def history_points(pid: int, player: dict):
     return h["date"].tolist(), h["value_eur"].tolist()
 
 
+def money_label(v: float) -> str:
+    """Axis tick in the card's € shorthand, without forced decimals: €10m, €500k."""
+    if v == 0:
+        return "€0"
+    return f"€{v / 1e6:g}m" if v >= 1e6 else f"€{v / 1e3:g}k"
+
+
+def money_ticks(top: float, target: int = 5) -> tuple[list[float], list[str]]:
+    """Round tick values from zero to just above top, with € labels."""
+    if top is None or pd.isna(top) or top <= 0:
+        top = 1e6
+    rough = top / target
+    magnitude = 10 ** math.floor(math.log10(rough))
+    # First 1, 2, 2.5 or 5 step that keeps roughly `target` ticks
+    step = next(m * magnitude for m in (1, 2, 2.5, 5, 10) if m * magnitude >= rough)
+    # Zero is left unlabelled so it never collides with the first year
+    values = [i * step for i in range(1, math.ceil(top / step) + 1)]
+    return values, [money_label(v) for v in values]
+
+
 def make_chart(pid: int):
     """Value history line plus 1 to 3 season forecast with a 10 to 90% band."""
     player = PLAYER_BY_ID.get(pid)
@@ -369,36 +391,52 @@ def make_chart(pid: int):
     f = FORECASTS_BY_ID.get(pid)
     has_forecast = f is not None and not f.empty
     last_date, last_val = hx[-1], hy[-1]
-    m = 1e6
 
     fig = go.Figure()
+    top = max((v for v in hy if pd.notna(v)), default=0)
     if has_forecast:
-        # Forecast traces start at the last known value so lines connect
-        fx = [last_date] + f["target_date"].tolist()
-        lo = [last_val] + f["p10_eur"].tolist()
-        mid = [last_val] + f["p50_eur"].tolist()
-        hi = [last_val] + f["p90_eur"].tolist()
-        fig.add_trace(go.Scatter(x=fx + fx[::-1], y=[v / m for v in hi + lo[::-1]], fill="toself",
-                                 mode="lines", fillcolor="rgba(212,167,44,0.22)", line=dict(width=0),
-                                 hoverinfo="skip", name="10 to 90% range"))
-    fig.add_trace(go.Scatter(x=hx, y=[v / m for v in hy], mode="lines+markers",
+        tx = f["target_date"].tolist()
+        lo, mid, hi = f["p10_eur"].tolist(), f["p50_eur"].tolist(), f["p90_eur"].tolist()
+        top = max([top] + [v for v in hi if pd.notna(v)])
+        # Band starts at the last known value so it opens from today
+        bx = [last_date] + tx
+        fig.add_trace(go.Scatter(x=bx + bx[::-1], y=[last_val] + hi + lo[::-1] + [last_val],
+                                 fill="toself", mode="lines", fillcolor="rgba(212,167,44,0.22)",
+                                 line=dict(width=0), hoverinfo="skip", name="Likely range",
+                                 legendrank=3))
+    # Hover text reuses the card's formatter so both read identically
+    fig.add_trace(go.Scatter(x=hx, y=hy, mode="lines+markers", name="Market value", legendrank=1,
                              line=dict(color=GRASS, width=2.5, shape="hv"), marker=dict(size=5),
-                             name="Market value", hovertemplate="%{x|%b %Y}<br>€%{y:.1f}m<extra></extra>"))
+                             customdata=[fmt_eur(v) for v in hy],
+                             hovertemplate="Market value: %{customdata}<extra></extra>"))
     if has_forecast:
-        fig.add_trace(go.Scatter(x=fx, y=[v / m for v in mid], mode="lines+markers",
-                                 line=dict(color=GOLD, width=2.5, dash="dash"), marker=dict(size=7),
-                                 name="Median forecast",
-                                 hovertemplate="%{x|%b %Y}<br>€%{y:.1f}m<extra></extra>"))
+        fig.add_trace(go.Scatter(
+            x=tx, y=mid, mode="lines+markers", name="Median forecast", legendrank=2,
+            line=dict(color=GOLD, width=2.5, dash="dash"), marker=dict(size=7),
+            customdata=[[fmt_eur(med), fmt_range(low, high)] for low, med, high in zip(lo, mid, hi)],
+            hovertemplate=("Median forecast: %{customdata[0]}<br>"
+                           "Likely range: %{customdata[1]}<extra></extra>")))
+        # Separate connector, so hovering today never repeats the current value
+        fig.add_trace(go.Scatter(x=[last_date, tx[0]], y=[last_val, mid[0]], mode="lines",
+                                 line=dict(color=GOLD, width=2.5, dash="dash"),
+                                 hoverinfo="skip", showlegend=False))
         # Dotted rule marks where observed history stops and forecast starts
         if pd.notna(last_date):
             fig.add_vline(x=last_date, line=dict(color=MUTED, width=1, dash="dot"))
+    ticks, labels = money_ticks(top)
     fig.update_layout(
-        height=420, margin=dict(l=10, r=10, t=10, b=10), hovermode="x unified",
+        height=380, margin=dict(l=8, r=8, t=8, b=8), hovermode="x unified",
         plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-        font=dict(family="Source Sans 3, sans-serif", size=13),
-        legend=dict(orientation="h", y=1.02, x=0, bgcolor="rgba(0,0,0,0)"),
-        yaxis=dict(title="Value (€m)", gridcolor="rgba(107,122,114,0.25)", rangemode="tozero"),
-        xaxis=dict(gridcolor="rgba(107,122,114,0.12)"),
+        font=dict(family="Source Sans 3, sans-serif", size=13, color=INK),
+        # Fixed entry widths stop late web fonts clipping a measured label
+        legend=dict(orientation="h", yanchor="top", y=-0.1, x=0, bgcolor="rgba(0,0,0,0)",
+                    entrywidth=150, entrywidthmode="pixels"),
+        # Light tooltip with dark ink stays readable on either page theme
+        hoverlabel=dict(bgcolor="#FFFFFF", bordercolor=MUTED, font=dict(color=INK)),
+        modebar=dict(bgcolor="rgba(0,0,0,0)", color=MUTED, activecolor=GRASS),
+        yaxis=dict(tickvals=ticks, ticktext=labels, range=[0, ticks[-1] * 1.02],
+                   gridcolor="rgba(107,122,114,0.25)", zeroline=False),
+        xaxis=dict(hoverformat="%b %Y", gridcolor="rgba(107,122,114,0.12)", zeroline=False),
     )
     return fig
 
@@ -556,45 +594,64 @@ THEME = gr.themes.Base(
     primary_hue=gr.themes.colors.green, neutral_hue=gr.themes.colors.stone,
     font=[gr.themes.GoogleFont("Source Sans 3"), "system-ui", "sans-serif"],
 ).set(body_background_fill=CHALK, block_background_fill="#FFFFFF",
-      button_primary_background_fill=PITCH, button_primary_text_color=CHALK)
+      button_primary_background_fill=PITCH, button_primary_text_color=CHALK,
+      # Stone 400 defaults reach only 2.5:1 on white; stone 600 passes 4.5:1
+      block_info_text_color=SUBDUED, body_text_color_subdued=SUBDUED,
+      block_label_text_color=SUBDUED,
+      # Placeholders need 4.5:1 on the input fill in both themes too
+      input_placeholder_color="#6A645F", input_placeholder_color_dark="#BAB4AE")
 CSS = (Path(__file__).parent / "style.css").read_text(encoding="utf-8")
 
-with gr.Blocks(title="Player value forecaster") as demo:
+APP_TITLE = "Player Value Forecaster"
+LOOK_AHEAD_INFO = "How many seasons ahead the forecast looks"
+SORT_INFO = "Order the table by value, predicted change or how uncertain the forecast is"
+TABLE_NOTE = ("⚠ low-confidence forecast. Likely range: where the model aims for the real "
+              "value to land 8 times out of 10.")
+
+with gr.Blocks(title=APP_TITLE) as demo:
     ids_state = gr.State([])
     selected_state = gr.State(None)
 
-    gr.HTML(f"""
+    gr.HTML("""
       <header class="pvf-head">
         <h1>Player value forecaster</h1>
-        <p>Where a player's Transfermarkt value is heading over the next three seasons,
-        based on age, form and the league and club around them.</p>
+        <p>Pick a football player to see where their Transfermarkt value is likely heading
+        over the next one to three seasons.</p>
       </header>""")
     if MANIFEST.get("is_mock"):
         gr.HTML('<div class="pvf-mock">Demo data: these players and forecasts are invented '
                 'while the models are being trained.</div>')
 
     # Results are built first so the examples can target them, placed below
-    horizon = gr.Radio(list(HORIZONS), value=DEFAULT_HORIZON, label="Look ahead", render=False)
-    sort_by = gr.Dropdown(list(SORTS), value=DEFAULT_SORT, label="Sort by", render=False)
+    horizon = gr.Radio(list(HORIZONS), value=DEFAULT_HORIZON, label="Look ahead",
+                       info=LOOK_AHEAD_INFO, render=False)
+    sort_by = gr.Dropdown(list(SORTS), value=DEFAULT_SORT, label="Sort by", info=SORT_INFO,
+                          render=False)
     count = gr.Markdown(render=False)
+    # Pinning keeps the name in view while the table scrolls sideways on phones
     table = gr.Dataframe(interactive=False, max_height=340, wrap=True, elem_classes="pvf-table",
                          column_widths=["13%", "5%", "12%", "14%", "11%", "12%", "8%", "9%", "16%"],
-                         render=False)
-    chart = gr.Plot(show_label=False, scale=3, render=False)
+                         pinned_columns=1, render=False)
+    chart = gr.Plot(show_label=False, elem_classes="pvf-chart", render=False)
     card = gr.Markdown(CARD_PROMPT, elem_classes="pvf-card", render=False)
     explain = gr.Markdown(make_explanation(None), elem_classes="pvf-explain", render=False)
     results = [table, ids_state, count, chart, card, explain, selected_state]
 
-    with gr.Row(equal_height=False):
+    with gr.Row(equal_height=False, elem_classes="pvf-main"):
         with gr.Column(scale=1, min_width=260, elem_classes="pvf-filters"):
             search = gr.Textbox(label="Search player", placeholder="Type part of a name",
                                 max_lines=1)
-            league = gr.Dropdown(options("league_name"), multiselect=True, label="League")
-            country = gr.Dropdown(options("league_country"), multiselect=True, label="League country")
-            nation = gr.Dropdown(options("nationality"), multiselect=True, label="Nationality")
-            position = gr.CheckboxGroup(options("position"), label="Position")
-            age_min = gr.Slider(AGE_FLOOR, AGE_CEILING, value=AGE_FLOOR, step=1, label="Youngest age")
-            age_max = gr.Slider(AGE_FLOOR, AGE_CEILING, value=AGE_CEILING, step=1, label="Oldest age")
+            # Secondary filters start folded so search and results lead the page
+            with gr.Accordion("More filters", open=False, elem_classes="pvf-more"):
+                position = gr.CheckboxGroup(options("position"), label="Position")
+                league = gr.Dropdown(options("league_name"), multiselect=True, label="League")
+                country = gr.Dropdown(options("league_country"), multiselect=True,
+                                      label="League country")
+                nation = gr.Dropdown(options("nationality"), multiselect=True, label="Nationality")
+                age_min = gr.Slider(AGE_FLOOR, AGE_CEILING, value=AGE_FLOOR, step=1,
+                                    label="Youngest age")
+                age_max = gr.Slider(AGE_FLOOR, AGE_CEILING, value=AGE_CEILING, step=1,
+                                    label="Oldest age")
             reset = gr.Button("Clear filters", variant="secondary")
             filters = [search, league, country, nation, position, age_min, age_max, horizon, sort_by]
 
@@ -608,13 +665,16 @@ with gr.Blocks(title="Player value forecaster") as demo:
                             example_labels=[label for label, _pid, _name in EXAMPLES],
                             label="Try an example", api_name="open_example")
 
-        with gr.Column(scale=3):
+        with gr.Column(scale=3, elem_classes="pvf-side"):
             with gr.Row(equal_height=True, elem_classes="pvf-view"):
                 horizon.render()
                 sort_by.render()
-            count.render()
-            table.render()
-            with gr.Row(equal_height=False):
+            # Results and detail are siblings so phone CSS can swap their order
+            with gr.Column(elem_classes="pvf-results"):
+                count.render()
+                table.render()
+                gr.Markdown(TABLE_NOTE, elem_classes="pvf-note")
+            with gr.Row(equal_height=False, elem_classes="pvf-detail"):
                 # Explanation sits directly under the chart it describes
                 with gr.Column(scale=3):
                     chart.render()
@@ -622,7 +682,7 @@ with gr.Blocks(title="Player value forecaster") as demo:
                 with gr.Column(scale=2, min_width=320):
                     card.render()
 
-    with gr.Accordion("How the forecast works", open=False):
+    with gr.Accordion("How the forecast works", open=False, elem_classes="pvf-how"):
         gr.Markdown(
             "Each forecast predicts the change in value 1, 2 and 3 seasons after the "
             "1 July snapshot. The shaded band is the range the model expects the value to land "

@@ -48,13 +48,16 @@ div.prose.pvf-explain blockquote {
   color: #17201C; font-style: normal;
 }
 div.prose.pvf-explain blockquote p { margin: 0; color: inherit; }
-/* Limits line is always present but deliberately quieter */
-div.prose.pvf-explain small { font-size: 0.82rem; color: #6B7A72; }
+/* Quieter small print; #56655E keeps 5.5:1 on the chalk page */
+div.prose.pvf-explain small { font-size: 0.82rem; color: #56655E; }
+
+/* Legend line under the table, same quiet tone as the small print */
+div.prose.pvf-note p { margin: 0; font-size: 0.85rem; color: #56655E; }
 
 /* Standing credit line; inner .prose only, so the rule is drawn once */
 div.prose.pvf-foot {
   margin-top: 22px; padding-top: 10px; border-top: 1px solid #14402F;
-  font-size: 0.82rem; line-height: 1.5; color: #6B7A72;
+  font-size: 0.82rem; line-height: 1.5; color: #56655E;
 }
 div.prose.pvf-foot p { margin: 3px 0; color: inherit; }
 /* (0,2,2) beats .prose a at (0,2,1) for colour and underline */
@@ -69,14 +72,70 @@ div.prose.pvf-foot a:hover { text-decoration: underline; }
   .prose header.pvf-head p { color: #C9D1CC; }
   .prose div.pvf-mock,
   div.prose.pvf-explain blockquote { background: #3A3219; color: #F2F3EC; }
-  div.prose.pvf-explain small { color: #9AA8A1; }
+  div.prose.pvf-explain small,
+  div.prose.pvf-note p { color: #9AA8A1; }
   /* Pitch green vanishes on the dark page, so lighten the border */
   div.pvf-filters { border-top-color: #9FD3B5; }
   div.prose.pvf-foot { border-top-color: #3E7A5B; color: #9AA8A1; }
   div.prose.pvf-foot a { color: #9FD3B5; }
 }
 
+/* Plotly writes fill and stroke inline and the server cannot know the
+   viewer's theme, so !important is needed to follow Gradio's variables.
+   Hover labels are left alone; the figure gives them a light box. */
+div.pvf-chart .main-svg .cartesianlayer text,
+div.pvf-chart .main-svg .infolayer text { fill: var(--body-text-color) !important; }
+div.pvf-chart .main-svg .gridlayer path { stroke: var(--border-color-primary) !important; }
+
 /* Gradio defaults tables to monospace; body face reads better here */
 .pvf-table { --font-mono: var(--font); }
 /* (0,2,2) beats .wrap.svelte-* at (0,2,0), so "Change" never splits */
 .pvf-table th span.wrap { word-break: normal; overflow-wrap: normal; }
+
+@media (max-width: 640px) {
+  /* Phone order: controls, then chart, explanation and card, then the table */
+  div.pvf-side > div.pvf-detail { order: 1; }
+  div.pvf-side > div.pvf-results { order: 2; }
+  /* Gradio writes cell widths inline as a share of the visible box, which
+     squeezes words letter by letter; fixed widths need !important to win */
+  div.pvf-table th:nth-child(1), div.pvf-table div.virtual-row > div:nth-child(1) { --w: 118px; }
+  div.pvf-table th:nth-child(2), div.pvf-table div.virtual-row > div:nth-child(2) { --w: 48px; }
+  div.pvf-table th:nth-child(3), div.pvf-table div.virtual-row > div:nth-child(3) { --w: 110px; }
+  div.pvf-table th:nth-child(4), div.pvf-table div.virtual-row > div:nth-child(4) { --w: 130px; }
+  div.pvf-table th:nth-child(5), div.pvf-table div.virtual-row > div:nth-child(5) { --w: 105px; }
+  div.pvf-table th:nth-child(6), div.pvf-table div.virtual-row > div:nth-child(6) { --w: 105px; }
+  div.pvf-table th:nth-child(7), div.pvf-table div.virtual-row > div:nth-child(7) { --w: 78px; }
+  div.pvf-table th:nth-child(8), div.pvf-table div.virtual-row > div:nth-child(8) { --w: 72px; }
+  div.pvf-table th:nth-child(9), div.pvf-table div.virtual-row > div:nth-child(9) { --w: 150px; }
+  div.pvf-table th, div.pvf-table div.virtual-row > div {
+    width: var(--w) !important; min-width: var(--w) !important;
+    max-width: var(--w) !important; flex: 0 0 var(--w) !important;
+  }
+  /* Header and rows share one scroller, so both widen and scroll together */
+  div.pvf-table table.header-table,
+  div.pvf-table div.virtual-body { min-width: 916px; }
+  /* Gradio 6.28 accepts pinned_columns but never renders it, so pin here */
+  div.pvf-table th.first-column,
+  div.pvf-table div.virtual-row > div.first-column {
+    position: sticky; left: 0; z-index: 2;
+    background: var(--table-even-background-fill);
+    box-shadow: 1px 0 0 var(--border-color-primary);
+  }
+  /* 44px tap targets; dropdown inputs carry no type attribute at all */
+  div.pvf-main button,
+  div.pvf-how button.label-wrap,
+  div.pvf-main label:has(input[type=radio]),
+  div.pvf-main label:has(input[type=checkbox]),
+  div.pvf-main input:not([type=range]):not([type=radio]):not([type=checkbox]) { min-height: 44px; }
+  /* Taller accordion bars keep their label and arrow on one centre line */
+  div.pvf-main button.label-wrap,
+  div.pvf-how button.label-wrap { display: flex; align-items: center; }
+  /* Slider number boxes sit in a 24px clipped frame; let it grow too */
+  div.pvf-main div.tab-like-container { height: 44px; }
+  /* Padding grows the slider's hit area while the drawn track stays thin */
+  div.pvf-main input[type=range] {
+    box-sizing: content-box; padding: 18px 0; background-clip: content-box;
+  }
+  /* Plotly's 22px toolbar icons are too small to tap, so hide them */
+  div.pvf-chart .modebar-container { display: none; }
+}

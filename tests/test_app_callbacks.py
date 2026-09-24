@@ -128,7 +128,8 @@ def test_chart_and_card_for_a_real_player(app):
     pid = first_player_id(app)
     fig = app.make_chart(pid)
     assert isinstance(fig, go.Figure)
-    assert len(fig.data) == 3
+    # Band, history, median and a hover-free connector from today
+    assert [t.name for t in fig.data] == ["Likely range", "Market value", "Median forecast", None]
     card = app.make_card(pid)
     assert app.PLAYER_BY_ID[pid]["name"] in card
     assert "Likely range" in card
@@ -639,3 +640,103 @@ def test_every_callback_path_returns_seven_results(app):
     assert outputs["reset_filters"] == n + 7
     # Examples register a fill step too; the one running open_example has n + 7
     assert n + 7 in [count for name, count in outputs.items() if name.startswith("open_example")]
+
+
+def descendants(block) -> list:
+    """Every component nested under a layout block, at any depth."""
+    found = []
+    for child in getattr(block, "children", []):
+        found.append(child)
+        found.extend(descendants(child))
+    return found
+
+
+def accordion(app, label):
+    return next(b for b in app.demo.blocks.values()
+                if isinstance(b, gr.Accordion) and b.label == label)
+
+
+@pytest.mark.parametrize("value, label", [
+    (0, "€0"), (500_000, "€500k"), (2_500_000, "€2.5m"), (10_000_000, "€10m"),
+    (250_000_000, "€250m")])
+def test_money_label_uses_euro_shorthand(app, value, label):
+    assert app.money_label(value) == label
+
+
+@pytest.mark.parametrize("top", [0.4e6, 3.2e6, 18e6, 463e6])
+def test_money_ticks_cover_the_top_with_round_steps(app, top):
+    values, labels = app.money_ticks(top)
+    # Ticks start one step above zero and just reach past the top
+    assert values[0] > 0 and values[-1] >= top and values[-2] < top
+    steps = {round(b - a, 6) for a, b in zip(values, values[1:])}
+    assert len(steps) == 1
+    assert labels == [app.money_label(v) for v in values]
+    assert 3 <= len(values) <= 7
+
+
+def test_money_ticks_survive_missing_values(app):
+    assert app.money_ticks(float("nan"))[0][-1] >= 1e6
+    assert app.money_ticks(0)[0][-1] >= 1e6
+
+
+def test_chart_hover_matches_the_card(app):
+    pid = first_player_id(app)
+    fig = app.make_chart(pid)
+    history = fig.data[1]
+    assert list(history.customdata) == [app.fmt_eur(v) for v in history.y]
+    median = fig.data[2]
+    f = app.FORECASTS_BY_ID[pid]
+    card = app.make_card(pid, 1)
+    for (mid, likely), row in zip(median.customdata, f.itertuples()):
+        assert mid == app.fmt_eur(row.p50_eur) and likely == app.fmt_range(row.p10_eur, row.p90_eur)
+        assert mid in card and likely in card
+    # The connector from today and the band never add hover rows
+    assert fig.data[0].hoverinfo == "skip" and fig.data[3].hoverinfo == "skip"
+
+
+def test_chart_axis_legend_and_background(app):
+    fig = app.make_chart(first_player_id(app))
+    layout = fig.layout
+    assert all(t.startswith("€") for t in layout.yaxis.ticktext)
+    assert layout.yaxis.range[1] >= max(max(t.y) for t in fig.data)
+    # Legend sits below the plot, horizontally, with short full labels
+    assert layout.legend.orientation == "h" and layout.legend.y < 0
+    assert [t.name for t in fig.data if t.showlegend is not False] == [
+        "Likely range", "Market value", "Median forecast"]
+    assert layout.plot_bgcolor == layout.paper_bgcolor == "rgba(0,0,0,0)"
+
+
+def test_browser_tab_title(app):
+    assert app.demo.title == "Player Value Forecaster"
+
+
+def test_helper_text_on_look_ahead_sort_and_table(app):
+    assert app.horizon.info == "How many seasons ahead the forecast looks"
+    assert app.sort_by.info
+    notes = [b.value for b in app.demo.blocks.values() if isinstance(b, gr.Markdown)
+             and "pvf-note" in (b.elem_classes or [])]
+    assert notes == ["⚠ low-confidence forecast. Likely range: where the model aims for the "
+                     "real value to land 8 times out of 10."]
+
+
+def test_secondary_filters_sit_in_a_collapsed_accordion(app):
+    more = accordion(app, "More filters")
+    assert more.open is False
+    inside = descendants(more)
+    for comp in (app.position, app.league, app.country, app.nation, app.age_min, app.age_max):
+        assert comp in inside
+    # Search, look ahead, sort and clear stay visible outside it
+    for comp in (app.search, app.horizon, app.sort_by, app.reset, app.count):
+        assert comp not in inside
+
+
+def test_every_control_has_a_visible_label(app):
+    for comp in app.filters:
+        assert comp.label and comp.show_label is not False
+        # Sentence case: only the first letter may be a capital
+        assert comp.label[0].isupper() and comp.label[1:] == comp.label[1:].lower()
+
+
+def test_table_pins_the_player_column(app):
+    assert app.table.pinned_columns == 1
+    assert app.COLUMNS[0] == "Player"
