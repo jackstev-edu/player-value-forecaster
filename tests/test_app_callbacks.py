@@ -22,10 +22,19 @@ def app():
     return module
 
 
-def call_filter(app, leagues=None, countries=None, nations=None, positions=None,
+def call_filter(app, search=None, leagues=None, countries=None, nations=None, positions=None,
                 age_min=None, age_max=None, selected=None):
     """Call the filter callback with the argument order the listener uses."""
-    return app.filter_players(leagues, countries, nations, positions, age_min, age_max, selected)
+    return app.filter_players(search, leagues, countries, nations, positions,
+                              age_min, age_max, selected)
+
+
+def with_accented_name(app, monkeypatch, name="Kylian Mbappé"):
+    """Rename the first player so accent handling can be tested on mock data."""
+    players = app.PLAYERS.copy()
+    players.loc[players.index[0], "name"] = name
+    monkeypatch.setattr(app, "PLAYERS", app.add_derived_columns(players.drop(columns="name_key")))
+    return int(players["player_id"].iloc[0])
 
 
 class FakeSelect:
@@ -186,3 +195,41 @@ def test_every_filter_path_returns_six_outputs(app):
     ]
     for outputs in cases:
         assert len(outputs) == 6
+
+
+@pytest.mark.parametrize("query", ["mbappe", "MBAPPE", "Mbappé", "mBaPpÉ", "  kylian   mbap "])
+def test_search_ignores_case_and_accents(app, monkeypatch, query):
+    pid = with_accented_name(app, monkeypatch)
+    _view, ids, count, _chart, _card, _selected = call_filter(app, search=query)
+    assert ids == [pid]
+    assert "**1 players**" in count
+
+
+def test_search_folds_letters_nfkd_keeps_whole(app):
+    assert app.normalise_name("Martin Ødegaard") == "martin odegaard"
+    assert app.normalise_name("Łukasz Fabiański") == "lukasz fabianski"
+    assert app.normalise_name(None) == ""
+
+
+def test_unmatched_search_names_the_search_in_the_advice(app):
+    view, ids, count, _chart, _card, _selected = call_filter(app, search="zzqx")
+    assert len(view) == 0 and ids == []
+    assert "No players match" in count
+    assert 'Search "zzqx"' in count
+
+
+def test_blank_search_is_no_filter(app):
+    assert call_filter(app, search="   ")[1] == call_filter(app)[1]
+
+
+@pytest.mark.parametrize("selected", [None, "first"])
+def test_reset_returns_defaults_and_matching_outputs(app, selected):
+    pid = first_player_id(app) if selected else None
+    out = app.reset_filters(pid)
+    defaults = app.default_filters()
+    n = len(defaults)
+    assert list(out[:n]) == defaults
+    assert len(out) == n + 6
+    expected = app.filter_players(*defaults, pid)
+    pd.testing.assert_frame_equal(out[n], expected[0])
+    assert out[n + 1:] == expected[1:]

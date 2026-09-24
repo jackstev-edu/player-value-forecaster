@@ -4,6 +4,7 @@ Reads only the prediction bundle in ./predictions, never the model,
 so the Space stays fast and the pipeline can change independently.
 """
 import json
+import unicodedata
 from datetime import datetime
 from pathlib import Path
 
@@ -48,7 +49,30 @@ def build_lookups(players, history, forecasts):
     return by_history, by_forecast, by_player
 
 
+# Letters that NFKD leaves whole, mapped to what people type instead
+EXTRA_FOLDS = str.maketrans({"ø": "o", "ł": "l", "đ": "d", "ð": "d", "æ": "ae",
+                             "œ": "oe", "ı": "i", "þ": "th"})
+
+
+def normalise_name(text) -> str:
+    """Lower case, accent free form so 'mbappe' matches 'Mbappé'."""
+    if not isinstance(text, str):
+        return ""
+    # NFKD splits é into e plus a combining accent, which we drop
+    decomposed = unicodedata.normalize("NFKD", text.casefold())
+    bare = "".join(ch for ch in decomposed if not unicodedata.combining(ch))
+    return " ".join(bare.translate(EXTRA_FOLDS).split())
+
+
+def add_derived_columns(players):
+    """Precompute per player search keys once, so filtering stays a lookup."""
+    players = players.copy()
+    players["name_key"] = players["name"].map(normalise_name)
+    return players
+
+
 PLAYERS, HISTORY, FORECASTS, MANIFEST = load_bundle()
+PLAYERS = add_derived_columns(PLAYERS)
 HISTORY_BY_ID, FORECASTS_BY_ID, PLAYER_BY_ID = build_lookups(PLAYERS, HISTORY, FORECASTS)
 
 
@@ -80,10 +104,15 @@ def no_match_message(lo: int, hi: int, active: list[str]) -> str:
     return msg + "."
 
 
-def filter_players(leagues, countries, nations, positions, age_min, age_max, selected_id):
+def filter_players(search, leagues, countries, nations, positions, age_min, age_max, selected_id):
     """Filter the roster and keep table, ids, count and selection in step."""
     df = PLAYERS
     active = []
+    query = normalise_name(search)
+    if query:
+        # Plain substring match on the precomputed key, never a regex
+        df = df[df["name_key"].str.contains(query, regex=False)]
+        active.append(f'Search "{search.strip()}"')
     # None and an empty list both mean no filter on that field
     for label, col, chosen in (("League", "league_name", leagues),
                                ("League country", "league_country", countries),
@@ -119,6 +148,17 @@ def filter_players(leagues, countries, nations, positions, age_min, age_max, sel
     else:
         chart_out, card_out, sel_out = None, CARD_GONE, None
     return view, df["player_id"].tolist(), count, chart_out, card_out, sel_out
+
+
+def default_filters() -> list:
+    """Starting value for every filter, in the same order as the inputs."""
+    return ["", [], [], [], [], AGE_FLOOR, AGE_CEILING]
+
+
+def reset_filters(selected_id):
+    """Clear every filter and refresh the results in one single run."""
+    defaults = default_filters()
+    return (*defaults, *filter_players(*defaults, selected_id))
 
 
 def history_points(pid: int, player: dict):
@@ -253,6 +293,8 @@ with gr.Blocks(title="Player value forecaster") as demo:
 
     with gr.Row(equal_height=False):
         with gr.Column(scale=1, min_width=260, elem_classes="pvf-filters"):
+            search = gr.Textbox(label="Search player", placeholder="Type part of a name",
+                                max_lines=1)
             league = gr.Dropdown(options("league_name"), multiselect=True, label="League")
             country = gr.Dropdown(options("league_country"), multiselect=True, label="League country")
             nation = gr.Dropdown(options("nationality"), multiselect=True, label="Nationality")
@@ -280,16 +322,15 @@ with gr.Blocks(title="Player value forecaster") as demo:
     # Footer sits outside every container so it stays visible at all times
     gr.HTML(make_footer(MANIFEST), elem_classes="pvf-foot")
 
-    filters = [league, country, nation, position, age_min, age_max]
-    # Explicit triggers keep selected_state an input without retriggering here
-    gr.on(triggers=[comp.change for comp in filters] + [demo.load],
-          fn=filter_players, inputs=filters + [selected_state],
-          outputs=[table, ids_state, count, chart, card, selected_state],
+    filters = [search, league, country, nation, position, age_min, age_max]
+    results = [table, ids_state, count, chart, card, selected_state]
+    # .input fires on user edits only, so code-set values never refilter
+    gr.on(triggers=[comp.input for comp in filters] + [demo.load],
+          fn=filter_players, inputs=filters + [selected_state], outputs=results,
           trigger_mode="always_last", api_name="filter_players")
     table.select(on_select, ids_state, [chart, card, selected_state], api_name="select_player")
-    # Clearing six filters fires six changes; always_last collapses them
-    reset.click(lambda: (None, None, None, None, AGE_FLOOR, AGE_CEILING), None, filters,
-                api_name="reset_filters")
+    # One run sets every filter and its results together, no cascade
+    reset.click(reset_filters, selected_state, filters + results, api_name="reset_filters")
 
 if __name__ == "__main__":
     demo.launch(theme=THEME, css=CSS)
