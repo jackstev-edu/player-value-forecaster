@@ -4,6 +4,7 @@ Reads only the prediction bundle in ./predictions, never the model,
 so the Space stays fast and the pipeline can change independently.
 """
 import json
+import math
 import unicodedata
 from datetime import datetime
 from pathlib import Path
@@ -34,6 +35,14 @@ CARD_PROMPT = "Select a player in the table."
 CARD_GONE = "That player isn't in the current results. Select another player in the table."
 CARD_MISSING = "That player could not be found in this bundle. Select another player in the table."
 CARD_STALE = "That row is no longer in the table. Select another player in the table."
+
+EXPLAIN_TITLE = "#### What this means"
+EXPLAIN_PROMPT = "Select a player to see what the forecast means."
+EXPLAIN_NO_FORECAST = "No forecast is available for this player yet."
+# Widest share of ranges, per horizon, that counts as low confidence
+LOW_CONFIDENCE_SHARE = 0.2
+MIN_HISTORY_ROWS = 3
+FLAG = "⚠ "
 
 # Palette: pitch green, chalk lines, gold for the forecast band
 PITCH, CHALK, INK, GRASS, GOLD, MUTED = "#14402F", "#F2F3EC", "#17201C", "#3E7A5B", "#D4A72C", "#6B7A72"
@@ -96,9 +105,18 @@ def add_derived_columns(players, forecasts):
     return players
 
 
+def width_cutoffs(players) -> dict[int, float]:
+    """Relative range width at which a forecast joins the widest 20%."""
+    # Quantile skips NaN, so players without a forecast never shift it
+    return {h: players[f"width_{h}"].quantile(1 - LOW_CONFIDENCE_SHARE)
+            for h in HORIZONS.values()}
+
+
 PLAYERS, HISTORY, FORECASTS, MANIFEST = load_bundle()
 PLAYERS = add_derived_columns(PLAYERS, FORECASTS)
 HISTORY_BY_ID, FORECASTS_BY_ID, PLAYER_BY_ID = build_lookups(PLAYERS, HISTORY, FORECASTS)
+# Fixed at startup so a filter never moves what counts as wide
+WIDTH_CUTOFF = width_cutoffs(PLAYERS)
 
 
 def fmt_eur(v) -> str:
@@ -124,6 +142,38 @@ def fmt_range(lo, hi) -> str:
 def horizon_of(label) -> int:
     """Radio label to seasons ahead, falling back to the default."""
     return HORIZONS.get(label, HORIZONS[DEFAULT_HORIZON])
+
+
+def seasons_text(h: int) -> str:
+    return "1 season" if h == 1 else f"{h} seasons"
+
+
+def history_count(pid: int) -> int:
+    h = HISTORY_BY_ID.get(pid)
+    return 0 if h is None else len(h)
+
+
+def low_confidence_reasons(width, n_history: int, h: int) -> list[str]:
+    """Which low confidence rules a forecast trips: 'width', 'history' or none."""
+    # NaN width means no usable forecast, so there is nothing to flag
+    if width is None or pd.isna(width):
+        return []
+    reasons = []
+    cutoff = WIDTH_CUTOFF.get(h)
+    # Float noise must not split ties; the mock gives every player one width
+    if (cutoff is not None and pd.notna(cutoff) and width > cutoff
+            and not math.isclose(width, cutoff, rel_tol=1e-9)):
+        reasons.append("width")
+    if n_history < MIN_HISTORY_ROWS:
+        reasons.append("history")
+    return reasons
+
+
+def flag_names(df, h: int) -> list[str]:
+    """Display names with a warning prefix for low confidence forecasts."""
+    # Only the shown rows are checked, so this costs at most MAX_ROWS lookups
+    return [FLAG + name if low_confidence_reasons(width, history_count(int(pid)), h) else name
+            for pid, name, width in zip(df["player_id"], df["name"], df[f"width_{h}"])]
 
 
 def sort_rows(df, sort_by, h: int):
@@ -188,7 +238,8 @@ def filter_players(search, leagues, countries, nations, positions, age_min, age_
 
     # Formatting happens after sorting, so text never drives the order
     view = pd.DataFrame({
-        "Player": df["name"], "Age": df["age"], "Position": df["sub_position"],
+        # Search and examples match df["name"], so the prefix never interferes
+        "Player": flag_names(df, h), "Age": df["age"], "Position": df["sub_position"],
         "Club": df["club_name"], "League": df["league_name"], "Nationality": df["nationality"],
         "Value": df["current_value_eur"].map(fmt_eur),
         "Change": df[f"change_{h}"].map(fmt_change),
@@ -205,12 +256,15 @@ def filter_players(search, leagues, countries, nations, positions, age_min, age_
 
     if selected_id is None:
         chart_out, card_out, sel_out = None, CARD_PROMPT, None
+        explain_out = make_explanation(None, h)
     elif int(selected_id) in matched_ids:
-        # Chart stays put; the card redraws to highlight the chosen horizon
+        # Chart stays put; card and explanation redraw for the chosen horizon
         chart_out, card_out, sel_out = gr.skip(), make_card(int(selected_id), h), selected_id
+        explain_out = make_explanation(int(selected_id), h)
     else:
         chart_out, card_out, sel_out = None, CARD_GONE, None
-    return view, df["player_id"].tolist(), count, chart_out, card_out, sel_out
+        explain_out = make_explanation(None, h)
+    return view, df["player_id"].tolist(), count, chart_out, card_out, explain_out, sel_out
 
 
 def default_filters() -> list:
@@ -225,14 +279,15 @@ def reset_filters(selected_id):
 
 
 def open_player(pid, horizon=DEFAULT_HORIZON):
-    """Chart, card and selection for one player id, guarding unknown ids."""
+    """Chart, card, explanation and selection for one id, guarding unknown ids."""
     try:
         pid = int(pid)
     except (TypeError, ValueError):
-        return None, CARD_MISSING, None
+        return None, CARD_MISSING, make_explanation(None), None
     if pid not in PLAYER_BY_ID:
-        return None, CARD_MISSING, None
-    return make_chart(pid), make_card(pid, horizon_of(horizon)), pid
+        return None, CARD_MISSING, make_explanation(None), None
+    h = horizon_of(horizon)
+    return make_chart(pid), make_card(pid, h), make_explanation(pid, h), pid
 
 
 def featured_player_id(players):
@@ -248,7 +303,7 @@ def initial_view():
     """Page load: default table with the featured player already open."""
     view, ids, count, *_ = filter_players(*default_filters(), None)
     if FEATURED_ID is None:
-        return view, ids, count, None, CARD_PROMPT, None
+        return view, ids, count, None, CARD_PROMPT, make_explanation(None), None
     return (view, ids, count, *open_player(FEATURED_ID))
 
 
@@ -379,6 +434,91 @@ def make_card(pid: int, horizon: int = 1) -> str:
     return "\n\n".join(parts)
 
 
+def warning_text(reasons: list[str], n_history: int, h: int) -> str:
+    """One blockquote line naming every low confidence rule that applied."""
+    said = []
+    if "width" in reasons:
+        said.append(f"this range is among the widest 20% of {seasons_text(h)} forecasts")
+    if "history" in reasons:
+        said.append("this player has no value history" if n_history == 0 else
+                    f"this player has only {n_history} past "
+                    f"valuation{'' if n_history == 1 else 's'}")
+    # Blockquote gives CSS a single element to hang the gold edge on
+    return f"> {FLAG}**Low confidence:** {', and '.join(said)}. Treat it as a rough guide."
+
+
+def change_text(p50, current) -> str:
+    """Median against today's value, rounded exactly like the table's Change column."""
+    if current is None or pd.isna(current) or current <= 0:
+        return ""
+    change = p50 / current - 1
+    pct = f"{abs(change):.0%}"
+    if pct == "0%":
+        return f", about the same as {fmt_eur(current)} today"
+    return f", {'up' if change > 0 else 'down'} {pct} from {fmt_eur(current)} today"
+
+
+def spread_text(rows: dict) -> str:
+    """How the range's width moves from the nearest to the furthest horizon."""
+    first, last = min(HORIZONS.values()), max(HORIZONS.values())
+    if first not in rows or last not in rows:
+        return ""
+    near = rows[first].p90_eur - rows[first].p10_eur
+    far = rows[last].p90_eur - rows[last].p10_eur
+    if pd.isna(near) or pd.isna(far) or near <= 0:
+        return ""
+    ratio = far / near
+    span = (f"from {fmt_eur(near)} at {seasons_text(first)} ahead "
+            f"to {fmt_eur(far)} at {seasons_text(last)}")
+    # Five percent either way reads as no real change to a user
+    if ratio >= 1.05:
+        how = f"{ratio - 1:.0%} wider" if ratio < 2 else f"{ratio:.1f} times as wide"
+        return f"The range widens the further ahead the model looks: its width grows {span}, {how}."
+    if ratio <= 0.95:
+        return (f"Unusually, the range narrows further ahead: its width shrinks {span}, "
+                f"{1 - ratio:.0%} narrower.")
+    return f"The range stays about the same width further ahead: its width goes {span}."
+
+
+def make_explanation(pid, horizon: int = 1) -> str:
+    """Fixed template in plain words for one player and horizon; no LLM."""
+    try:
+        player = PLAYER_BY_ID.get(int(pid))
+    except (TypeError, ValueError):
+        player = None
+    if player is None:
+        return f"{EXPLAIN_TITLE}\n\n{EXPLAIN_PROMPT}"
+    pid = int(pid)
+    f = FORECASTS_BY_ID.get(pid)
+    rows = {} if f is None else {int(r.horizon): r for r in f.itertuples()}
+    r = rows.get(horizon)
+    if r is None or pd.isna(r.p50_eur):
+        return f"{EXPLAIN_TITLE}\n\n{EXPLAIN_NO_FORECAST}"
+
+    by = f" (by {r.target_date:%b %Y})" if pd.notna(r.target_date) else ""
+    # Same formatters as the card, so both always show identical numbers
+    middle = (f"In {seasons_text(horizon)}{by}, the model's middle estimate is "
+              f"{fmt_eur(r.p50_eur)}{change_text(r.p50_eur, player['current_value_eur'])}.")
+    likely = (f"Its likely range is {fmt_range(r.p10_eur, r.p90_eur)}. The model aims for the "
+              "real value to land inside this range 8 times out of 10.")
+    value_date = player["value_date"]
+    anchor = f"{value_date.day} {value_date:%b %Y}" if pd.notna(value_date) else "its last valuation"
+    limits = ("<small>Based only on past Transfermarkt valuations. It does not know about "
+              f"injuries, contracts or transfers after {anchor}.</small>")
+
+    parts = [EXPLAIN_TITLE]
+    n_history = history_count(pid)
+    reasons = low_confidence_reasons(player.get(f"width_{horizon}"), n_history, horizon)
+    if reasons:
+        parts.append(warning_text(reasons, n_history, horizon))
+    parts.append(f"{middle} {likely}")
+    spread = spread_text(rows)
+    if spread:
+        parts.append(spread)
+    parts.append(limits)
+    return "\n\n".join(parts)
+
+
 def make_footer(manifest: dict) -> str:
     """Credits, coursework notice and bundle stamp shown under everything."""
     version = manifest.get("model_version") or "unknown"
@@ -404,10 +544,12 @@ def make_footer(manifest: dict) -> str:
 def on_select(ids: list[int], horizon: str, evt: gr.SelectData):
     """Row click handler; evt.index is [row, col] in the visible table."""
     row = evt.index[0] if evt is not None and evt.index else None
+    # Table, ids and count are skipped so every event shares one output list
+    keep = (gr.skip(), gr.skip(), gr.skip())
     # A click can land after the table shrank underneath the user
     if not ids or row is None or not 0 <= row < len(ids):
-        return None, CARD_STALE, None
-    return open_player(ids[row], horizon)
+        return (*keep, None, CARD_STALE, make_explanation(None), None)
+    return (*keep, *open_player(ids[row], horizon))
 
 
 THEME = gr.themes.Base(
@@ -440,7 +582,8 @@ with gr.Blocks(title="Player value forecaster") as demo:
                          render=False)
     chart = gr.Plot(show_label=False, scale=3, render=False)
     card = gr.Markdown(CARD_PROMPT, elem_classes="pvf-card", render=False)
-    results = [table, ids_state, count, chart, card, selected_state]
+    explain = gr.Markdown(make_explanation(None), elem_classes="pvf-explain", render=False)
+    results = [table, ids_state, count, chart, card, explain, selected_state]
 
     with gr.Row(equal_height=False):
         with gr.Column(scale=1, min_width=260, elem_classes="pvf-filters"):
@@ -472,7 +615,10 @@ with gr.Blocks(title="Player value forecaster") as demo:
             count.render()
             table.render()
             with gr.Row(equal_height=False):
-                chart.render()
+                # Explanation sits directly under the chart it describes
+                with gr.Column(scale=3):
+                    chart.render()
+                    explain.render()
                 with gr.Column(scale=2, min_width=320):
                     card.render()
 
@@ -492,8 +638,7 @@ with gr.Blocks(title="Player value forecaster") as demo:
           trigger_mode="always_last", api_name="filter_players")
     # First paint opens the featured player instead of an empty chart
     demo.load(initial_view, None, results, api_name="initial_view")
-    table.select(on_select, [ids_state, horizon], [chart, card, selected_state],
-                 api_name="select_player")
+    table.select(on_select, [ids_state, horizon], results, api_name="select_player")
     # One run sets every filter and its results together, no cascade
     reset.click(reset_filters, selected_state, filters + results, api_name="reset_filters")
 

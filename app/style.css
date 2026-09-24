@@ -36,6 +36,21 @@ div.prose.pvf-card h3 {
 /* Highlighted forecast row in the player card */
 div.prose.pvf-card strong { color: #14402F; }
 
+/* "What this means" box under the chart; (0,2,2) beats .prose h4 */
+div.prose.pvf-explain h4 {
+  font-family: "Barlow Condensed", "Arial Narrow", sans-serif;
+  font-size: 1.25rem; color: #14402F; margin: 0 0 4px;
+}
+/* Low confidence warning mirrors the demo banner's gold left edge */
+div.prose.pvf-explain blockquote {
+  border-left: 4px solid #D4A72C; background: #FBF4DF;
+  padding: 8px 12px; margin: 0 0 10px; border-radius: 2px;
+  color: #17201C; font-style: normal;
+}
+div.prose.pvf-explain blockquote p { margin: 0; color: inherit; }
+/* Limits line is always present but deliberately quieter */
+div.prose.pvf-explain small { font-size: 0.82rem; color: #6B7A72; }
+
 /* Standing credit line; inner .prose only, so the rule is drawn once */
 div.prose.pvf-foot {
   margin-top: 22px; padding-top: 10px; border-top: 1px solid #14402F;
@@ -49,9 +64,12 @@ div.prose.pvf-foot a:hover { text-decoration: underline; }
 @media (prefers-color-scheme: dark) {
   .prose header.pvf-head h1,
   div.prose.pvf-card h3,
-  div.prose.pvf-card strong { color: #9FD3B5; }
+  div.prose.pvf-card strong,
+  div.prose.pvf-explain h4 { color: #9FD3B5; }
   .prose header.pvf-head p { color: #C9D1CC; }
-  .prose div.pvf-mock { background: #3A3219; color: #F2F3EC; }
+  .prose div.pvf-mock,
+  div.prose.pvf-explain blockquote { background: #3A3219; color: #F2F3EC; }
+  div.prose.pvf-explain small { color: #9AA8A1; }
   /* Pitch green vanishes on the dark page, so lighten the border */
   div.pvf-filters { border-top-color: #9FD3B5; }
   div.prose.pvf-foot { border-top-color: #3E7A5B; color: #9AA8A1; }
