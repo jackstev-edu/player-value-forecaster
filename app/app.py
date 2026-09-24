@@ -17,7 +17,18 @@ MAX_ROWS = 200
 AGE_FLOOR, AGE_CEILING = 15, 45
 
 # Columns the table always shows, even when no player matches
-COLUMNS = ["Player", "Age", "Position", "Club", "League", "Nationality", "Value"]
+COLUMNS = ["Player", "Age", "Position", "Club", "League", "Nationality", "Value",
+           "Change", "Likely range"]
+
+# Radio labels mapped to the forecast horizon in seasons
+HORIZONS = {"1 season": 1, "2 seasons": 2, "3 seasons": 3}
+DEFAULT_HORIZON = "1 season"
+# Sort label to (column prefix, ascending); prefixes gain the horizon suffix
+SORTS = {"Current value": ("current_value_eur", False),
+         "Biggest predicted rise": ("change", False),
+         "Biggest predicted fall": ("change", True),
+         "Most uncertain": ("width", False)}
+DEFAULT_SORT = "Current value"
 
 CARD_PROMPT = "Select a player in the table."
 CARD_GONE = "That player isn't in the current results. Select another player in the table."
@@ -64,15 +75,29 @@ def normalise_name(text) -> str:
     return " ".join(bare.translate(EXTRA_FOLDS).split())
 
 
-def add_derived_columns(players):
-    """Precompute per player search keys once, so filtering stays a lookup."""
+def add_derived_columns(players, forecasts):
+    """Precompute search keys and per horizon forecast numbers once at startup."""
     players = players.copy()
     players["name_key"] = players["name"].map(normalise_name)
+    # One row per player, columns keyed by (quantile, horizon)
+    wide = forecasts.pivot_table(index="player_id", columns="horizon",
+                                 values=["p10_eur", "p50_eur", "p90_eur"], aggfunc="first")
+    current = players["current_value_eur"].where(players["current_value_eur"] > 0)
+    for h in HORIZONS.values():
+        for q in ("p10", "p50", "p90"):
+            col = (f"{q}_eur", h)
+            # A horizon missing from the bundle becomes all NaN, not a KeyError
+            src = wide[col] if col in wide.columns else pd.Series(dtype=float)
+            players[f"{q}_{h}"] = players["player_id"].map(src).astype(float)
+        median = players[f"p50_{h}"].where(players[f"p50_{h}"] > 0)
+        # Zero or missing denominators give NaN, which sort_rows puts last
+        players[f"change_{h}"] = players[f"p50_{h}"] / current - 1
+        players[f"width_{h}"] = (players[f"p90_{h}"] - players[f"p10_{h}"]) / median
     return players
 
 
 PLAYERS, HISTORY, FORECASTS, MANIFEST = load_bundle()
-PLAYERS = add_derived_columns(PLAYERS)
+PLAYERS = add_derived_columns(PLAYERS, FORECASTS)
 HISTORY_BY_ID, FORECASTS_BY_ID, PLAYER_BY_ID = build_lookups(PLAYERS, HISTORY, FORECASTS)
 
 
@@ -82,6 +107,35 @@ def fmt_eur(v) -> str:
     if v is None or pd.isna(v):
         return "unknown"
     return f"€{v / 1e6:.1f}m" if v >= 1e6 else f"€{v / 1e3:.0f}k"
+
+
+def fmt_change(v) -> str:
+    """Signed whole percent, e.g. +18%, or n/a without a forecast."""
+    return "n/a" if v is None or pd.isna(v) else f"{v:+.0%}"
+
+
+def fmt_range(lo, hi) -> str:
+    """Likely range as '€8.0m to €15.0m', or n/a when either end is missing."""
+    if lo is None or hi is None or pd.isna(lo) or pd.isna(hi):
+        return "n/a"
+    return f"{fmt_eur(lo)} to {fmt_eur(hi)}"
+
+
+def horizon_of(label) -> int:
+    """Radio label to seasons ahead, falling back to the default."""
+    return HORIZONS.get(label, HORIZONS[DEFAULT_HORIZON])
+
+
+def sort_rows(df, sort_by, h: int):
+    """Order on raw numbers; no forecast for this horizon always goes last."""
+    prefix, ascending = SORTS.get(sort_by, SORTS[DEFAULT_SORT])
+    key = prefix if prefix == "current_value_eur" else f"{prefix}_{h}"
+    # Ties fall back to higher value, then lower id, so order is deterministic
+    by = ["_no_forecast", key] + [c for c in ("current_value_eur", "player_id") if c != key]
+    asc = [True, ascending] + [c == "player_id" for c in by[2:]]
+    return (df.assign(_no_forecast=df[f"p50_{h}"].isna())
+              .sort_values(by, ascending=asc, na_position="last", kind="stable")
+              .drop(columns="_no_forecast"))
 
 
 def options(col: str) -> list[str]:
@@ -104,7 +158,8 @@ def no_match_message(lo: int, hi: int, active: list[str]) -> str:
     return msg + "."
 
 
-def filter_players(search, leagues, countries, nations, positions, age_min, age_max, selected_id):
+def filter_players(search, leagues, countries, nations, positions, age_min, age_max,
+                   horizon, sort_by, selected_id):
     """Filter the roster and keep table, ids, count and selection in step."""
     df = PLAYERS
     active = []
@@ -127,15 +182,21 @@ def filter_players(search, leagues, countries, nations, positions, age_min, age_
     # Judge the selection against everyone, not the slice on screen
     matched_ids = set(df["player_id"].tolist())
     total = len(df)
-    df = df.sort_values("current_value_eur", ascending=False).head(MAX_ROWS)
+    h = horizon_of(horizon)
+    sort_by = sort_by if sort_by in SORTS else DEFAULT_SORT
+    df = sort_rows(df, sort_by, h).head(MAX_ROWS)
 
+    # Formatting happens after sorting, so text never drives the order
     view = pd.DataFrame({
         "Player": df["name"], "Age": df["age"], "Position": df["sub_position"],
         "Club": df["club_name"], "League": df["league_name"], "Nationality": df["nationality"],
         "Value": df["current_value_eur"].map(fmt_eur),
+        "Change": df[f"change_{h}"].map(fmt_change),
+        "Likely range": [fmt_range(lo, hi) for lo, hi in zip(df[f"p10_{h}"], df[f"p90_{h}"])],
     }, columns=COLUMNS)
     if total:
-        shown = f" (showing the top {MAX_ROWS} by value)" if total > MAX_ROWS else ""
+        shown = (f" (showing the first {MAX_ROWS}, sorted by {sort_by.lower()})"
+                 if total > MAX_ROWS else "")
         count = f"**{total} players** match these filters{shown}. Select a row to see the forecast."
     else:
         count = no_match_message(lo, hi, active)
@@ -143,8 +204,8 @@ def filter_players(search, leagues, countries, nations, positions, age_min, age_
     if selected_id is None:
         chart_out, card_out, sel_out = None, CARD_PROMPT, None
     elif int(selected_id) in matched_ids:
-        # Selection survived the new filters, so leave its panels alone
-        chart_out, card_out, sel_out = gr.skip(), gr.skip(), selected_id
+        # Chart stays put; the card redraws to highlight the chosen horizon
+        chart_out, card_out, sel_out = gr.skip(), make_card(int(selected_id), h), selected_id
     else:
         chart_out, card_out, sel_out = None, CARD_GONE, None
     return view, df["player_id"].tolist(), count, chart_out, card_out, sel_out
@@ -152,7 +213,7 @@ def filter_players(search, leagues, countries, nations, positions, age_min, age_
 
 def default_filters() -> list:
     """Starting value for every filter, in the same order as the inputs."""
-    return ["", [], [], [], [], AGE_FLOOR, AGE_CEILING]
+    return ["", [], [], [], [], AGE_FLOOR, AGE_CEILING, DEFAULT_HORIZON, DEFAULT_SORT]
 
 
 def reset_filters(selected_id):
@@ -213,7 +274,7 @@ def make_chart(pid: int):
     return fig
 
 
-def make_card(pid: int) -> str:
+def make_card(pid: int, horizon: int = 1) -> str:
     """Short markdown summary of the selected player and forecast numbers."""
     player = PLAYER_BY_ID.get(pid)
     if player is None:
@@ -227,9 +288,15 @@ def make_card(pid: int) -> str:
              f"({player['league_name']})\n\n"
              f"Value now: **{fmt_eur(player['current_value_eur'])}** (updated {updated})"]
     if f is not None and not f.empty:
-        rows = "\n".join(
-            f"| {r.target_date:%b %Y} | {fmt_eur(r.p50_eur)} | {fmt_eur(r.p10_eur)} to {fmt_eur(r.p90_eur)} |"
-            for r in f.itertuples())
+        lines = []
+        for r in f.itertuples():
+            cells = [f"{r.target_date:%b %Y}", fmt_eur(r.p50_eur), fmt_range(r.p10_eur, r.p90_eur)]
+            # Bold the look ahead row and mark it so it reads at a glance
+            if r.horizon == horizon:
+                cells = [f"**{c}**" for c in cells]
+                cells[0] = f"▸ {cells[0]}"
+            lines.append("| " + " | ".join(cells) + " |")
+        rows = "\n".join(lines)
         parts.append(f"| Season | Median | Likely range |\n|---|---|---|\n{rows}")
     else:
         parts.append("No forecast is available for this player.")
@@ -260,14 +327,14 @@ def make_footer(manifest: dict) -> str:
     )
 
 
-def on_select(ids: list[int], evt: gr.SelectData):
+def on_select(ids: list[int], horizon: str, evt: gr.SelectData):
     """Row click handler; evt.index is [row, col] in the visible table."""
     row = evt.index[0] if evt is not None and evt.index else None
     # A click can land after the table shrank underneath the user
     if not ids or row is None or not 0 <= row < len(ids):
         return None, CARD_STALE, None
     pid = int(ids[row])
-    return make_chart(pid), make_card(pid), pid
+    return make_chart(pid), make_card(pid, horizon_of(horizon)), pid
 
 
 THEME = gr.themes.Base(
@@ -304,9 +371,13 @@ with gr.Blocks(title="Player value forecaster") as demo:
             reset = gr.Button("Clear filters", variant="secondary")
 
         with gr.Column(scale=3):
+            with gr.Row(equal_height=True, elem_classes="pvf-view"):
+                horizon = gr.Radio(list(HORIZONS), value=DEFAULT_HORIZON, label="Look ahead")
+                sort_by = gr.Dropdown(list(SORTS), value=DEFAULT_SORT, label="Sort by")
             count = gr.Markdown()
             table = gr.Dataframe(interactive=False, max_height=340, wrap=True, elem_classes="pvf-table",
-                                 column_widths=["17%", "7%", "16%", "20%", "14%", "14%", "12%"])
+                                 column_widths=["13%", "5%", "12%", "14%", "11%", "12%", "8%",
+                                                "9%", "16%"])
             with gr.Row(equal_height=False):
                 chart = gr.Plot(show_label=False, scale=3)
                 with gr.Column(scale=2, min_width=320):
@@ -322,13 +393,14 @@ with gr.Blocks(title="Player value forecaster") as demo:
     # Footer sits outside every container so it stays visible at all times
     gr.HTML(make_footer(MANIFEST), elem_classes="pvf-foot")
 
-    filters = [search, league, country, nation, position, age_min, age_max]
+    filters = [search, league, country, nation, position, age_min, age_max, horizon, sort_by]
     results = [table, ids_state, count, chart, card, selected_state]
     # .input fires on user edits only, so code-set values never refilter
     gr.on(triggers=[comp.input for comp in filters] + [demo.load],
           fn=filter_players, inputs=filters + [selected_state], outputs=results,
           trigger_mode="always_last", api_name="filter_players")
-    table.select(on_select, ids_state, [chart, card, selected_state], api_name="select_player")
+    table.select(on_select, [ids_state, horizon], [chart, card, selected_state],
+                 api_name="select_player")
     # One run sets every filter and its results together, no cascade
     reset.click(reset_filters, selected_state, filters + results, api_name="reset_filters")
 

@@ -40,3 +40,14 @@
 /* Gradio defaults tables to monospace; body face reads better here */
 .pvf-table { --font-mono: var(--font); }
 .pvf-table table, .pvf-table td, .pvf-table th, .pvf-table span { font-family: var(--font) !important; }
+/* Wrap between words only, so "Change" never splits into "Chang e" */
+.pvf-table td span, .pvf-table th span { word-break: normal !important; overflow-wrap: normal !important; }
+
+/* Look ahead and sort sit on one quiet strip above the table */
+.pvf-view { border-top: 3px solid #D4A72C; }
+
+/* Highlighted forecast row in the player card */
+.pvf-card strong { color: #14402F; }
+@media (prefers-color-scheme: dark) {
+  .pvf-card strong { color: #9FD3B5; }
+}
