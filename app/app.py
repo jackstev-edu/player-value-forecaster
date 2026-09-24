@@ -4,6 +4,7 @@ Reads only the prediction bundle in ./predictions, never the model,
 so the Space stays fast and the pipeline can change independently.
 """
 import json
+import unicodedata
 from datetime import datetime
 from pathlib import Path
 
@@ -16,7 +17,18 @@ MAX_ROWS = 200
 AGE_FLOOR, AGE_CEILING = 15, 45
 
 # Columns the table always shows, even when no player matches
-COLUMNS = ["Player", "Age", "Position", "Club", "League", "Nationality", "Value"]
+COLUMNS = ["Player", "Age", "Position", "Club", "League", "Nationality", "Value",
+           "Change", "Likely range"]
+
+# Radio labels mapped to the forecast horizon in seasons
+HORIZONS = {"1 season": 1, "2 seasons": 2, "3 seasons": 3}
+DEFAULT_HORIZON = "1 season"
+# Sort label to (column prefix, ascending); prefixes gain the horizon suffix
+SORTS = {"Current value": ("current_value_eur", False),
+         "Biggest predicted rise": ("change", False),
+         "Biggest predicted fall": ("change", True),
+         "Most uncertain": ("width", False)}
+DEFAULT_SORT = "Current value"
 
 CARD_PROMPT = "Select a player in the table."
 CARD_GONE = "That player isn't in the current results. Select another player in the table."
@@ -48,7 +60,44 @@ def build_lookups(players, history, forecasts):
     return by_history, by_forecast, by_player
 
 
+# Letters that NFKD leaves whole, mapped to what people type instead
+EXTRA_FOLDS = str.maketrans({"ø": "o", "ł": "l", "đ": "d", "ð": "d", "æ": "ae",
+                             "œ": "oe", "ı": "i", "þ": "th"})
+
+
+def normalise_name(text) -> str:
+    """Lower case, accent free form so 'mbappe' matches 'Mbappé'."""
+    if not isinstance(text, str):
+        return ""
+    # NFKD splits é into e plus a combining accent, which we drop
+    decomposed = unicodedata.normalize("NFKD", text.casefold())
+    bare = "".join(ch for ch in decomposed if not unicodedata.combining(ch))
+    return " ".join(bare.translate(EXTRA_FOLDS).split())
+
+
+def add_derived_columns(players, forecasts):
+    """Precompute search keys and per horizon forecast numbers once at startup."""
+    players = players.copy()
+    players["name_key"] = players["name"].map(normalise_name)
+    # One row per player, columns keyed by (quantile, horizon)
+    wide = forecasts.pivot_table(index="player_id", columns="horizon",
+                                 values=["p10_eur", "p50_eur", "p90_eur"], aggfunc="first")
+    current = players["current_value_eur"].where(players["current_value_eur"] > 0)
+    for h in HORIZONS.values():
+        for q in ("p10", "p50", "p90"):
+            col = (f"{q}_eur", h)
+            # A horizon missing from the bundle becomes all NaN, not a KeyError
+            src = wide[col] if col in wide.columns else pd.Series(dtype=float)
+            players[f"{q}_{h}"] = players["player_id"].map(src).astype(float)
+        median = players[f"p50_{h}"].where(players[f"p50_{h}"] > 0)
+        # Zero or missing denominators give NaN, which sort_rows puts last
+        players[f"change_{h}"] = players[f"p50_{h}"] / current - 1
+        players[f"width_{h}"] = (players[f"p90_{h}"] - players[f"p10_{h}"]) / median
+    return players
+
+
 PLAYERS, HISTORY, FORECASTS, MANIFEST = load_bundle()
+PLAYERS = add_derived_columns(PLAYERS, FORECASTS)
 HISTORY_BY_ID, FORECASTS_BY_ID, PLAYER_BY_ID = build_lookups(PLAYERS, HISTORY, FORECASTS)
 
 
@@ -58,6 +107,35 @@ def fmt_eur(v) -> str:
     if v is None or pd.isna(v):
         return "unknown"
     return f"€{v / 1e6:.1f}m" if v >= 1e6 else f"€{v / 1e3:.0f}k"
+
+
+def fmt_change(v) -> str:
+    """Signed whole percent, e.g. +18%, or n/a without a forecast."""
+    return "n/a" if v is None or pd.isna(v) else f"{v:+.0%}"
+
+
+def fmt_range(lo, hi) -> str:
+    """Likely range as '€8.0m to €15.0m', or n/a when either end is missing."""
+    if lo is None or hi is None or pd.isna(lo) or pd.isna(hi):
+        return "n/a"
+    return f"{fmt_eur(lo)} to {fmt_eur(hi)}"
+
+
+def horizon_of(label) -> int:
+    """Radio label to seasons ahead, falling back to the default."""
+    return HORIZONS.get(label, HORIZONS[DEFAULT_HORIZON])
+
+
+def sort_rows(df, sort_by, h: int):
+    """Order on raw numbers; no forecast for this horizon always goes last."""
+    prefix, ascending = SORTS.get(sort_by, SORTS[DEFAULT_SORT])
+    key = prefix if prefix == "current_value_eur" else f"{prefix}_{h}"
+    # Ties fall back to higher value, then lower id, so order is deterministic
+    by = ["_no_forecast", key] + [c for c in ("current_value_eur", "player_id") if c != key]
+    asc = [True, ascending] + [c == "player_id" for c in by[2:]]
+    return (df.assign(_no_forecast=df[f"p50_{h}"].isna())
+              .sort_values(by, ascending=asc, na_position="last", kind="stable")
+              .drop(columns="_no_forecast"))
 
 
 def options(col: str) -> list[str]:
@@ -80,10 +158,16 @@ def no_match_message(lo: int, hi: int, active: list[str]) -> str:
     return msg + "."
 
 
-def filter_players(leagues, countries, nations, positions, age_min, age_max, selected_id):
+def filter_players(search, leagues, countries, nations, positions, age_min, age_max,
+                   horizon, sort_by, selected_id):
     """Filter the roster and keep table, ids, count and selection in step."""
     df = PLAYERS
     active = []
+    query = normalise_name(search)
+    if query:
+        # Plain substring match on the precomputed key, never a regex
+        df = df[df["name_key"].str.contains(query, regex=False)]
+        active.append(f'Search "{search.strip()}"')
     # None and an empty list both mean no filter on that field
     for label, col, chosen in (("League", "league_name", leagues),
                                ("League country", "league_country", countries),
@@ -98,27 +182,118 @@ def filter_players(leagues, countries, nations, positions, age_min, age_max, sel
     # Judge the selection against everyone, not the slice on screen
     matched_ids = set(df["player_id"].tolist())
     total = len(df)
-    df = df.sort_values("current_value_eur", ascending=False).head(MAX_ROWS)
+    h = horizon_of(horizon)
+    sort_by = sort_by if sort_by in SORTS else DEFAULT_SORT
+    df = sort_rows(df, sort_by, h).head(MAX_ROWS)
 
+    # Formatting happens after sorting, so text never drives the order
     view = pd.DataFrame({
         "Player": df["name"], "Age": df["age"], "Position": df["sub_position"],
         "Club": df["club_name"], "League": df["league_name"], "Nationality": df["nationality"],
         "Value": df["current_value_eur"].map(fmt_eur),
+        "Change": df[f"change_{h}"].map(fmt_change),
+        "Likely range": [fmt_range(lo, hi) for lo, hi in zip(df[f"p10_{h}"], df[f"p90_{h}"])],
     }, columns=COLUMNS)
     if total:
-        shown = f" (showing the top {MAX_ROWS} by value)" if total > MAX_ROWS else ""
-        count = f"**{total} players** match these filters{shown}. Select a row to see the forecast."
+        shown = (f" (showing the first {MAX_ROWS}, sorted by {sort_by.lower()})"
+                 if total > MAX_ROWS else "")
+        # Example clicks often leave one match, so get the singular right
+        who = "**1 player** matches" if total == 1 else f"**{total} players** match"
+        count = f"{who} these filters{shown}. Select a row to see the forecast."
     else:
         count = no_match_message(lo, hi, active)
 
     if selected_id is None:
         chart_out, card_out, sel_out = None, CARD_PROMPT, None
     elif int(selected_id) in matched_ids:
-        # Selection survived the new filters, so leave its panels alone
-        chart_out, card_out, sel_out = gr.skip(), gr.skip(), selected_id
+        # Chart stays put; the card redraws to highlight the chosen horizon
+        chart_out, card_out, sel_out = gr.skip(), make_card(int(selected_id), h), selected_id
     else:
         chart_out, card_out, sel_out = None, CARD_GONE, None
     return view, df["player_id"].tolist(), count, chart_out, card_out, sel_out
+
+
+def default_filters() -> list:
+    """Starting value for every filter, in the same order as the inputs."""
+    return ["", [], [], [], [], AGE_FLOOR, AGE_CEILING, DEFAULT_HORIZON, DEFAULT_SORT]
+
+
+def reset_filters(selected_id):
+    """Clear every filter and refresh the results in one single run."""
+    defaults = default_filters()
+    return (*defaults, *filter_players(*defaults, selected_id))
+
+
+def open_player(pid, horizon=DEFAULT_HORIZON):
+    """Chart, card and selection for one player id, guarding unknown ids."""
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return None, CARD_MISSING, None
+    if pid not in PLAYER_BY_ID:
+        return None, CARD_MISSING, None
+    return make_chart(pid), make_card(pid, horizon_of(horizon)), pid
+
+
+def featured_player_id(players):
+    """Highest current value, so a first visit never lands on a blank chart."""
+    ranked = players.dropna(subset=["current_value_eur"])
+    if ranked.empty:
+        return None
+    return int(ranked.sort_values(["current_value_eur", "player_id"],
+                                  ascending=[False, True])["player_id"].iloc[0])
+
+
+def initial_view():
+    """Page load: default table with the featured player already open."""
+    view, ids, count, *_ = filter_players(*default_filters(), None)
+    if FEATURED_ID is None:
+        return view, ids, count, None, CARD_PROMPT, None
+    return (view, ids, count, *open_player(FEATURED_ID))
+
+
+MIN_EXAMPLE_VALUE = 1e6
+
+
+def is_valued(p):
+    return p["current_value_eur"] >= MIN_EXAMPLE_VALUE
+
+
+# (label, who qualifies, ranking column, take the largest); star goes first
+# so it matches the featured player and no other rule can claim it
+EXAMPLE_RULES = [
+    ("Established star", lambda p: p["current_value_eur"].notna(), "current_value_eur", True),
+    ("Rising young player", lambda p: (p["age"] <= 23) & is_valued(p), "change_1", True),
+    ("Veteran in decline", lambda p: (p["age"] >= 31) & is_valued(p), "change_1", False),
+    ("Hardest to predict", is_valued, "width_1", True),
+]
+
+
+def pick_examples(players) -> list[tuple[str, int, str]]:
+    """Apply each rule in turn; players already picked are not eligible again."""
+    picks, taken = [], set()
+    for label, qualifies, col, largest in EXAMPLE_RULES:
+        pool = players[qualifies(players) & ~players["player_id"].isin(taken)].dropna(subset=[col])
+        # A rule that finds nobody is skipped rather than faked
+        if pool.empty:
+            continue
+        best = pool.sort_values([col, "player_id"], ascending=[not largest, True]).iloc[0]
+        picks.append((label, int(best["player_id"]), best["name"]))
+        taken.add(int(best["player_id"]))
+    return picks
+
+
+def open_example(name, player_id):
+    """Example click: search that name, reset the rest, open that exact id."""
+    values = default_filters()
+    values[0] = name or ""
+    view, ids, count, *_ = filter_players(*values, None)
+    # Names can repeat, so the hidden id decides which player opens
+    return (*values, view, ids, count, *open_player(player_id))
+
+
+FEATURED_ID = featured_player_id(PLAYERS)
+EXAMPLES = pick_examples(PLAYERS)
 
 
 def history_points(pid: int, player: dict):
@@ -173,7 +348,7 @@ def make_chart(pid: int):
     return fig
 
 
-def make_card(pid: int) -> str:
+def make_card(pid: int, horizon: int = 1) -> str:
     """Short markdown summary of the selected player and forecast numbers."""
     player = PLAYER_BY_ID.get(pid)
     if player is None:
@@ -187,9 +362,15 @@ def make_card(pid: int) -> str:
              f"({player['league_name']})\n\n"
              f"Value now: **{fmt_eur(player['current_value_eur'])}** (updated {updated})"]
     if f is not None and not f.empty:
-        rows = "\n".join(
-            f"| {r.target_date:%b %Y} | {fmt_eur(r.p50_eur)} | {fmt_eur(r.p10_eur)} to {fmt_eur(r.p90_eur)} |"
-            for r in f.itertuples())
+        lines = []
+        for r in f.itertuples():
+            cells = [f"{r.target_date:%b %Y}", fmt_eur(r.p50_eur), fmt_range(r.p10_eur, r.p90_eur)]
+            # Bold the look ahead row and mark it so it reads at a glance
+            if r.horizon == horizon:
+                cells = [f"**{c}**" for c in cells]
+                cells[0] = f"▸ {cells[0]}"
+            lines.append("| " + " | ".join(cells) + " |")
+        rows = "\n".join(lines)
         parts.append(f"| Season | Median | Likely range |\n|---|---|---|\n{rows}")
     else:
         parts.append("No forecast is available for this player.")
@@ -220,14 +401,13 @@ def make_footer(manifest: dict) -> str:
     )
 
 
-def on_select(ids: list[int], evt: gr.SelectData):
+def on_select(ids: list[int], horizon: str, evt: gr.SelectData):
     """Row click handler; evt.index is [row, col] in the visible table."""
     row = evt.index[0] if evt is not None and evt.index else None
     # A click can land after the table shrank underneath the user
     if not ids or row is None or not 0 <= row < len(ids):
         return None, CARD_STALE, None
-    pid = int(ids[row])
-    return make_chart(pid), make_card(pid), pid
+    return open_player(ids[row], horizon)
 
 
 THEME = gr.themes.Base(
@@ -251,8 +431,21 @@ with gr.Blocks(title="Player value forecaster") as demo:
         gr.HTML('<div class="pvf-mock">Demo data: these players and forecasts are invented '
                 'while the models are being trained.</div>')
 
+    # Results are built first so the examples can target them, placed below
+    horizon = gr.Radio(list(HORIZONS), value=DEFAULT_HORIZON, label="Look ahead", render=False)
+    sort_by = gr.Dropdown(list(SORTS), value=DEFAULT_SORT, label="Sort by", render=False)
+    count = gr.Markdown(render=False)
+    table = gr.Dataframe(interactive=False, max_height=340, wrap=True, elem_classes="pvf-table",
+                         column_widths=["13%", "5%", "12%", "14%", "11%", "12%", "8%", "9%", "16%"],
+                         render=False)
+    chart = gr.Plot(show_label=False, scale=3, render=False)
+    card = gr.Markdown(CARD_PROMPT, elem_classes="pvf-card", render=False)
+    results = [table, ids_state, count, chart, card, selected_state]
+
     with gr.Row(equal_height=False):
         with gr.Column(scale=1, min_width=260, elem_classes="pvf-filters"):
+            search = gr.Textbox(label="Search player", placeholder="Type part of a name",
+                                max_lines=1)
             league = gr.Dropdown(options("league_name"), multiselect=True, label="League")
             country = gr.Dropdown(options("league_country"), multiselect=True, label="League country")
             nation = gr.Dropdown(options("nationality"), multiselect=True, label="Nationality")
@@ -260,15 +453,28 @@ with gr.Blocks(title="Player value forecaster") as demo:
             age_min = gr.Slider(AGE_FLOOR, AGE_CEILING, value=AGE_FLOOR, step=1, label="Youngest age")
             age_max = gr.Slider(AGE_FLOOR, AGE_CEILING, value=AGE_CEILING, step=1, label="Oldest age")
             reset = gr.Button("Clear filters", variant="secondary")
+            filters = [search, league, country, nation, position, age_min, age_max, horizon, sort_by]
+
+            # Carries the example's player id, since names alone can repeat
+            example_id = gr.Number(visible=False, precision=0)
+            if EXAMPLES:
+                # cache_examples=False matters: Spaces would otherwise cache and skip fn
+                gr.Examples([[name, pid] for _label, pid, name in EXAMPLES],
+                            inputs=[search, example_id], outputs=filters + results,
+                            fn=open_example, run_on_click=True, cache_examples=False,
+                            example_labels=[label for label, _pid, _name in EXAMPLES],
+                            label="Try an example", api_name="open_example")
 
         with gr.Column(scale=3):
-            count = gr.Markdown()
-            table = gr.Dataframe(interactive=False, max_height=340, wrap=True, elem_classes="pvf-table",
-                                 column_widths=["17%", "7%", "16%", "20%", "14%", "14%", "12%"])
+            with gr.Row(equal_height=True, elem_classes="pvf-view"):
+                horizon.render()
+                sort_by.render()
+            count.render()
+            table.render()
             with gr.Row(equal_height=False):
-                chart = gr.Plot(show_label=False, scale=3)
+                chart.render()
                 with gr.Column(scale=2, min_width=320):
-                    card = gr.Markdown(CARD_PROMPT, elem_classes="pvf-card")
+                    card.render()
 
     with gr.Accordion("How the forecast works", open=False):
         gr.Markdown(
@@ -280,16 +486,16 @@ with gr.Blocks(title="Player value forecaster") as demo:
     # Footer sits outside every container so it stays visible at all times
     gr.HTML(make_footer(MANIFEST), elem_classes="pvf-foot")
 
-    filters = [league, country, nation, position, age_min, age_max]
-    # Explicit triggers keep selected_state an input without retriggering here
-    gr.on(triggers=[comp.change for comp in filters] + [demo.load],
-          fn=filter_players, inputs=filters + [selected_state],
-          outputs=[table, ids_state, count, chart, card, selected_state],
+    # .input fires on user edits only, so code-set values never refilter
+    gr.on(triggers=[comp.input for comp in filters],
+          fn=filter_players, inputs=filters + [selected_state], outputs=results,
           trigger_mode="always_last", api_name="filter_players")
-    table.select(on_select, ids_state, [chart, card, selected_state], api_name="select_player")
-    # Clearing six filters fires six changes; always_last collapses them
-    reset.click(lambda: (None, None, None, None, AGE_FLOOR, AGE_CEILING), None, filters,
-                api_name="reset_filters")
+    # First paint opens the featured player instead of an empty chart
+    demo.load(initial_view, None, results, api_name="initial_view")
+    table.select(on_select, [ids_state, horizon], [chart, card, selected_state],
+                 api_name="select_player")
+    # One run sets every filter and its results together, no cascade
+    reset.click(reset_filters, selected_state, filters + results, api_name="reset_filters")
 
 if __name__ == "__main__":
     demo.launch(theme=THEME, css=CSS)
