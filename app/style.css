@@ -5,7 +5,8 @@
    resets borders, ".prose *" (0,2,0) and ".prose h1/h3/a" (0,2,1) set
    colours. Locally Gradio re-prefixes rules with ".gradio-container ...
    .contain", so selectors must not start with .gradio-container
-   themselves. Dark rules reuse the light selectors and win by coming later. */
+   themselves. Dark rules add .dark to the light selector, so they
+   outrank it by one class whatever the load order. */
 
 /* (0,2,2) beats .prose h1 at (0,2,1) */
 .prose header.pvf-head { padding: 8px 2px 4px; }
@@ -64,21 +65,22 @@ div.prose.pvf-foot p { margin: 3px 0; color: inherit; }
 div.prose.pvf-foot a { color: #14402F; text-decoration: none; }
 div.prose.pvf-foot a:hover { text-decoration: underline; }
 
-@media (prefers-color-scheme: dark) {
-  .prose header.pvf-head h1,
-  div.prose.pvf-card h3,
-  div.prose.pvf-card strong,
-  div.prose.pvf-explain h4 { color: #9FD3B5; }
-  .prose header.pvf-head p { color: #C9D1CC; }
-  .prose div.pvf-mock,
-  div.prose.pvf-explain blockquote { background: #3A3219; color: #F2F3EC; }
-  div.prose.pvf-explain small,
-  div.prose.pvf-note p { color: #9AA8A1; }
-  /* Pitch green vanishes on the dark page, so lighten the border */
-  div.pvf-filters { border-top-color: #9FD3B5; }
-  div.prose.pvf-foot { border-top-color: #3E7A5B; color: #9AA8A1; }
-  div.prose.pvf-foot a { color: #9FD3B5; }
-}
+/* Gradio sets .dark on body for system dark, Settings dark and ?__theme,
+   so keying on it matches the chart. One selector per rule: Gradio's
+   local prefixer strips only the first .dark in a comma list. */
+.dark .prose header.pvf-head h1 { color: #9FD3B5; }
+.dark div.prose.pvf-card h3 { color: #9FD3B5; }
+.dark div.prose.pvf-card strong { color: #9FD3B5; }
+.dark div.prose.pvf-explain h4 { color: #9FD3B5; }
+.dark .prose header.pvf-head p { color: #C9D1CC; }
+.dark .prose div.pvf-mock { background: #3A3219; color: #F2F3EC; }
+.dark div.prose.pvf-explain blockquote { background: #3A3219; color: #F2F3EC; }
+.dark div.prose.pvf-explain small { color: #9AA8A1; }
+.dark div.prose.pvf-note p { color: #9AA8A1; }
+/* Pitch green vanishes on the dark page, so lighten the border */
+.dark div.pvf-filters { border-top-color: #9FD3B5; }
+.dark div.prose.pvf-foot { border-top-color: #3E7A5B; color: #9AA8A1; }
+.dark div.prose.pvf-foot a { color: #9FD3B5; }
 
 /* Plotly writes fill and stroke inline and the server cannot know the
    viewer's theme, so !important is needed to follow Gradio's variables.
