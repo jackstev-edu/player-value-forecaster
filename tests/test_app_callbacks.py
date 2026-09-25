@@ -483,12 +483,41 @@ def test_explanation_wording_and_limits(app):
     text = app.make_explanation(pid, 1)
     assert text.startswith(app.EXPLAIN_TITLE)
     assert "aims for the real value to land inside this range 8 times out of 10" in text
-    # Limits line is always last, in small text, dated from value_date
-    d = app.PLAYER_BY_ID[pid]["value_date"]
+    # Limits line is always last, in small text, dated from anchor_date
+    anchor = app.FORECASTS_BY_ID[pid].set_index("horizon").loc[1, "anchor_date"]
+    valued = app.PLAYER_BY_ID[pid]["value_date"]
+    # Premise: the mock dates differ, so the test can tell them apart
+    assert anchor != valued
     limits = text.split("\n\n")[-1]
     assert limits.startswith("<small>") and limits.endswith("</small>")
-    assert f"transfers after {d.day} {d:%b %Y}." in limits
+    assert f"transfers after {anchor.day} {anchor:%b %Y}." in limits
+    assert f"{valued:%b %Y}" not in limits
     assert "Transfermarkt valuations" in limits
+
+
+def test_change_is_measured_from_the_dated_latest_valuation(app):
+    pid = first_player_id(app)
+    text = app.make_explanation(pid, 1)
+    d = app.PLAYER_BY_ID[pid]["value_date"]
+    current = app.fmt_eur(app.PLAYER_BY_ID[pid]["current_value_eur"])
+    assert f"from {current} at the latest valuation ({d.day} {d:%b %Y})." in text
+    assert "today" not in text
+
+
+def test_change_and_limits_fall_back_without_dates(app):
+    assert app.change_text(2e6, 1e6, None) == ", up 100% from €1.0m at the latest valuation"
+    assert app.change_text(1e6, 1e6, pd.NaT).endswith("€1.0m at the latest valuation")
+    assert app.fmt_day(pd.NaT) is None and app.fmt_day(pd.Timestamp("2026-07-01")) == "1 Jul 2026"
+
+
+def test_how_it_works_makes_no_backtest_claim(app):
+    how = accordion(app, "How the forecast works")
+    text = " ".join(c.value for c in descendants(how) if isinstance(c, gr.Markdown))
+    assert "backtest" not in text.lower()
+    assert ("The model will be tested on past seasons it never saw. Results will appear here "
+            "once the real model is in.") in text
+    # The rest of the explanation is kept
+    assert "8 times out of 10" in text
 
 
 def test_explanation_describes_how_the_range_widens(app):

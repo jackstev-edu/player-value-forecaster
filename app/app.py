@@ -485,15 +485,23 @@ def warning_text(reasons: list[str], n_history: int, h: int) -> str:
     return f"> {FLAG}**Low confidence:** {', and '.join(said)}. Treat it as a rough guide."
 
 
-def change_text(p50, current) -> str:
-    """Median against today's value, rounded exactly like the table's Change column."""
+def fmt_day(d) -> str | None:
+    """Full date such as 1 Jul 2026, or None when missing."""
+    return f"{d.day} {d:%b %Y}" if d is not None and pd.notna(d) else None
+
+
+def change_text(p50, current, value_date=None) -> str:
+    """Median against the latest valuation, rounded like the table's Change column."""
     if current is None or pd.isna(current) or current <= 0:
         return ""
     change = p50 / current - 1
     pct = f"{abs(change):.0%}"
+    # Name the valuation's own date; it is not today and not the anchor
+    day = fmt_day(value_date)
+    latest = f"at the latest valuation ({day})" if day else "at the latest valuation"
     if pct == "0%":
-        return f", about the same as {fmt_eur(current)} today"
-    return f", {'up' if change > 0 else 'down'} {pct} from {fmt_eur(current)} today"
+        return f", about the same as {fmt_eur(current)} {latest}"
+    return f", {'up' if change > 0 else 'down'} {pct} from {fmt_eur(current)} {latest}"
 
 
 def spread_text(rows: dict) -> str:
@@ -535,12 +543,13 @@ def make_explanation(pid, horizon: int = 1) -> str:
 
     by = f" (by {r.target_date:%b %Y})" if pd.notna(r.target_date) else ""
     # Same formatters as the card, so both always show identical numbers
+    change = change_text(r.p50_eur, player["current_value_eur"], player["value_date"])
     middle = (f"In {seasons_text(horizon)}{by}, the model's middle estimate is "
-              f"{fmt_eur(r.p50_eur)}{change_text(r.p50_eur, player['current_value_eur'])}.")
+              f"{fmt_eur(r.p50_eur)}{change}.")
     likely = (f"Its likely range is {fmt_range(r.p10_eur, r.p90_eur)}. The model aims for the "
               "real value to land inside this range 8 times out of 10.")
-    value_date = player["value_date"]
-    anchor = f"{value_date.day} {value_date:%b %Y}" if pd.notna(value_date) else "its last valuation"
+    # The forecast's anchor is when its knowledge stops, not the last valuation
+    anchor = fmt_day(getattr(r, "anchor_date", None)) or "the forecast was made"
     limits = ("<small>Based only on past Transfermarkt valuations. It does not know about "
               f"injuries, contracts or transfers after {anchor}.</small>")
 
@@ -686,8 +695,8 @@ with gr.Blocks(title=APP_TITLE) as demo:
         gr.Markdown(
             "Each forecast predicts the change in value 1, 2 and 3 seasons after the "
             "1 July snapshot. The shaded band is the range the model expects the value to land "
-            "in 8 times out of 10. Models were backtested on later seasons than they were "
-            "trained on.")
+            "in 8 times out of 10. The model will be tested on past seasons it never saw. "
+            "Results will appear here once the real model is in.")
 
     # Footer sits outside every container so it stays visible at all times
     gr.HTML(make_footer(MANIFEST), elem_classes="pvf-foot")

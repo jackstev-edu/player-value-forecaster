@@ -5,6 +5,7 @@ colorFrom: green
 colorTo: yellow
 sdk: gradio
 sdk_version: 6.28.0
+python_version: "3.12"
 app_file: app.py
 pinned: false
 short_description: Forecast football player market values 1 to 3 seasons out
