@@ -1,0 +1,195 @@
+@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&display=swap');
+
+/* SPIKE styling: enough to judge feasibility, not a design. Rules above the
+   page marker go through Gradio's css=. Locally Gradio prefixes them with
+   .contain and they win; on Spaces they are unprefixed and load before
+   Gradio's own sheets, so ties lose. Every rule is therefore scoped under
+   #pvf, since an id outranks Gradio's class rules in both places. */
+
+/* Condensed face on everything that should read like a game menu */
+#pvf .pvf-hero h1,
+#pvf .pvf-kicker,
+#pvf .pvf-h2,
+#pvf button.pvf-big-btn,
+#pvf .pc-name,
+#pvf .pc-value,
+#pvf .pc-pos,
+#pvf .pvf-player-head h2,
+#pvf .pvf-big,
+#pvf button.pvf-rcard,
+#pvf .pvf-cards-radio label {
+  font-family: "Barlow Condensed", "Arial Narrow", sans-serif !important;
+}
+
+/* Screens get the full width and a little air between them */
+#pvf .pvf-screen { gap: 18px !important; }
+
+/* Tabs option: hide the bar so screens switch only from code */
+#pvf .pvf-tabs > .tab-wrapper,
+#pvf .pvf-tabs .tab-container { display: none !important; }
+#pvf .pvf-tabs > .tabitem,
+#pvf .pvf-tabs div[role="tabpanel"] { padding: 0 !important; border: 0 !important;
+  background: transparent !important; }
+
+/* Hidden target for the browser Back hook; must stay in the DOM */
+button.pvf-pop { display: none !important; }
+
+/* Big bold buttons on top of size="lg" */
+#pvf button.pvf-big-btn {
+  font-size: 1.6rem !important; font-weight: 800 !important; letter-spacing: 0.05em;
+  text-transform: uppercase; min-height: 64px; padding: 12px 32px !important;
+  border-radius: 6px !important;
+}
+#pvf button.pvf-big-btn.primary { box-shadow: 0 6px 24px rgba(212, 167, 44, 0.25); }
+#pvf button.pvf-big-btn:focus-visible { outline: 3px solid #F2F3EC; outline-offset: 3px; }
+#pvf .pvf-actions { gap: 14px !important; }
+
+/* Home hero sits on a dark panel so its text never meets the pitch */
+#pvf .prose header.pvf-hero {
+  background: rgba(8, 20, 14, 0.92); border: 1px solid #2C4D3D; border-radius: 10px;
+  padding: 28px 28px 24px;
+}
+#pvf .prose header.pvf-hero h1 {
+  font-size: clamp(3rem, 9vw, 6.2rem) !important; line-height: 0.9 !important; font-weight: 800;
+  text-transform: uppercase; color: #F2F3EC !important; margin: 4px 0 14px !important;
+}
+#pvf .prose header.pvf-hero p { color: #B5C2BA !important; font-size: 1.1rem; max-width: 50ch; margin: 0; }
+#pvf .prose header.pvf-hero p.pvf-kicker { color: #D4A72C !important; text-transform: uppercase; letter-spacing: 0.14em;
+  font-weight: 700; font-size: 1.05rem !important; }
+#pvf .prose p.pvf-mock { color: #F2F3EC !important; background: #3A3219; border-left: 4px solid #D4A72C;
+  padding: 8px 12px; margin: 0; border-radius: 4px; }
+
+#pvf .prose h2.pvf-h2 {
+  color: #F2F3EC !important; font-size: 2.4rem !important; font-weight: 800; margin: 0 !important;
+  text-transform: uppercase; line-height: 1.1;
+}
+#pvf .prose h2.pvf-h2 small { font-size: 1.1rem; color: #B5C2BA; letter-spacing: 0.04em; }
+#pvf .pvf-bar { align-items: center !important; gap: 16px !important; }
+
+/* Shared card look for HTML and Dataset; buttons reset their own font */
+#pvf .pvf-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; }
+#pvf button.pvf-card,
+#pvf div.pvf-card {
+  display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left;
+  padding: 12px 14px; font: inherit; cursor: pointer; color: #F2F3EC;
+  background: linear-gradient(160deg, #173a2a 0%, #0C1D15 70%);
+  border: 1px solid #2C4D3D; border-radius: 10px;
+}
+#pvf button.pvf-card:hover,
+#pvf button.pvf-card:focus-visible { border-color: #D4A72C;
+  outline: 2px solid #D4A72C; outline-offset: 2px; }
+#pvf .pc-top { display: flex; justify-content: space-between; align-items: center; }
+#pvf .pc-pos { color: #D4A72C; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700;
+  font-size: 0.95rem; }
+#pvf .pc-flag { color: #FFC857; font-weight: 700; }
+#pvf .pc-name { font-size: 1.5rem; font-weight: 700; line-height: 1.05; margin-top: 2px; }
+#pvf .pc-meta { font-size: 0.85rem; color: #B5C2BA; }
+#pvf .pc-value { font-size: 2rem; font-weight: 800; line-height: 1; margin-top: 6px; }
+#pvf .pc-change { font-weight: 700; font-size: 0.95rem; }
+#pvf .pc-up { color: #6FD69A; }
+#pvf .pc-down { color: #FF8A7A; }
+#pvf .pc-flat { color: #B5C2BA; }
+#pvf .pc-range { font-size: 0.8rem; color: #B5C2BA; }
+#pvf .prose .pvf-empty { color: #F2F3EC; }
+
+/* Dataset option: flatten the gallery buttons and lay them out as a grid */
+#pvf .pvf-cards-ds .gallery,
+#pvf .pvf-cards-ds div:has(> button.gallery-item) {
+  display: grid !important; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 12px !important;
+}
+#pvf .pvf-cards-ds button.gallery-item { padding: 0 !important; border: 0 !important;
+  background: transparent !important; width: 100%; max-width: none !important; }
+#pvf .pvf-cards-ds button.gallery-item:focus-visible div.pvf-card { outline: 2px solid #D4A72C; }
+#pvf .pvf-cards-ds .prose { max-width: none !important; }
+
+/* Radio option: options become a card grid, newlines kept, dot hidden */
+#pvf .pvf-cards-radio .wrap { display: grid !important;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px !important; }
+#pvf .pvf-cards-radio label {
+  white-space: pre-line !important; align-items: flex-start !important; min-height: 118px;
+  padding: 12px 14px !important; font-size: 1.15rem !important; line-height: 1.2;
+  background: linear-gradient(160deg, #173a2a 0%, #0C1D15 70%) !important;
+  border: 1px solid #2C4D3D !important; border-radius: 10px !important;
+}
+#pvf .pvf-cards-radio label input { position: absolute; opacity: 0; }
+#pvf .pvf-cards-radio label:focus-within { outline: 2px solid #D4A72C; outline-offset: 2px; }
+
+/* gr.render option: a Row of Buttons forced into the same grid */
+#pvf .pvf-rgrid { display: grid !important; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 12px !important; }
+#pvf button.pvf-rcard {
+  white-space: pre-line !important; text-align: left !important; justify-content: flex-start !important;
+  align-items: flex-start !important; min-height: 118px; font-size: 1.15rem !important;
+  line-height: 1.2; padding: 12px 14px !important; min-width: 0 !important;
+  background: linear-gradient(160deg, #173a2a 0%, #0C1D15 70%) !important;
+  border: 1px solid #2C4D3D !important; border-radius: 10px !important;
+}
+
+/* Markdown has no block fill, so give text over the pitch its own panel */
+#pvf .block.pvf-panel { background: #0C1D15 !important; border: 1px solid #2C4D3D !important;
+  border-radius: 10px; padding: 12px 16px !important; }
+#pvf .pvf-panel .prose * { color: #F2F3EC; }
+
+/* Player screen header */
+#pvf .prose header.pvf-player-head { background: rgba(8, 20, 14, 0.92); border: 1px solid #2C4D3D;
+  border-radius: 10px; padding: 18px 22px; }
+#pvf .prose header.pvf-player-head h2 { font-size: clamp(2.4rem, 7vw, 4rem) !important; font-weight: 800;
+  text-transform: uppercase; line-height: 0.95 !important; margin: 6px 0 8px !important;
+  color: #F2F3EC !important; }
+#pvf .prose header.pvf-player-head p { color: #B5C2BA !important; margin: 0; }
+#pvf .prose header.pvf-player-head p.pvf-big { font-size: 2.4rem; font-weight: 800; color: #F2F3EC !important;
+  margin-top: 8px; }
+#pvf .prose header.pvf-player-head .pc-flag { margin-left: 12px; }
+
+/* Phone: one column of cards and full width buttons */
+@media (max-width: 480px) {
+  #pvf .pvf-grid,
+#pvf .pvf-rgrid,
+#pvf .pvf-cards-radio .wrap,
+#pvf .pvf-cards-ds .gallery {
+    grid-template-columns: 1fr 1fr !important; gap: 8px !important; }
+  #pvf .pc-name { font-size: 1.2rem; }
+  #pvf .pc-value { font-size: 1.5rem; }
+  #pvf button.pvf-big-btn { font-size: 1.3rem !important; padding: 10px 16px !important; }
+  #pvf .prose header.pvf-hero { padding: 20px 18px; }
+}
+
+/* PAGE LEVEL RULES */
+/* Everything below goes into <head> unprefixed, because it styles html and body */
+/* Spaces SSR puts background: var(--body-background-fill) inline on html,
+   so only !important beats it */
+html { background: #05100A !important; }
+body, gradio-app, .gradio-container { background: transparent !important; }
+body { min-height: 100vh; }
+/* Multipage navbar ignores gr.Navbar(visible=False) in 6.28, and sits outside .contain */
+.gradio-container > .nav-holder { display: none !important; }
+
+/* Pitch floor: a tilted plane of mowed stripes and chalk lines, CSS only */
+body::before {
+  content: ""; position: fixed; z-index: -1; pointer-events: none;
+  left: -40vw; right: -40vw; bottom: 0; height: 110vh;
+  background:
+    /* Halfway line across the plane */
+    linear-gradient(to bottom, transparent calc(62% - 2px), rgba(242, 243, 236, 0.22) calc(62% - 2px),
+      rgba(242, 243, 236, 0.22) calc(62% + 2px), transparent calc(62% + 2px)),
+    /* Centre circle as a thin ring on the halfway line */
+    radial-gradient(circle at 50% 62%, rgba(242, 243, 236, 0.25) 0 6px, transparent 7px 16vh,
+      rgba(242, 243, 236, 0.2) calc(16vh + 1px) calc(16vh + 5px), transparent calc(16vh + 6px)),
+    /* Penalty box near the far end */
+    linear-gradient(to right, transparent 38%, rgba(242, 243, 236, 0.16) 38% calc(38% + 4px),
+      transparent calc(38% + 4px) calc(62% - 4px), rgba(242, 243, 236, 0.16) calc(62% - 4px) 62%,
+      transparent 62%) top / 100% 22% no-repeat,
+    /* Mowed stripes, alternating two greens */
+    repeating-linear-gradient(90deg, #14402A 0 5%, #0F3321 5% 10%);
+  transform: perspective(60vh) rotateX(62deg);
+  transform-origin: 50% 100%;
+  /* Fade to the background at the far edge and dim everything */
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, rgba(0, 0, 0, 0.55) 55%, rgba(0, 0, 0, 0.75) 100%);
+  mask-image: linear-gradient(to bottom, transparent 0%, rgba(0, 0, 0, 0.55) 55%, rgba(0, 0, 0, 0.75) 100%);
+}
+/* A soft floodlight glow just above the pitch */
+body::after {
+  content: ""; position: fixed; z-index: -1; pointer-events: none; left: 0; right: 0; bottom: 0;
+  height: 70vh; background: radial-gradient(ellipse 60% 55% at 50% 100%, rgba(111, 214, 154, 0.10), transparent 70%);
+}
