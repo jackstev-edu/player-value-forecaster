@@ -19,4 +19,4 @@ Choose how far to look ahead (1, 2 or 3 seasons) and sort by current value, bigg
 
 The page opens on the most valuable player, and four examples (Established star, Rising young player, Veteran in decline, Hardest to predict) are picked from the data by fixed rules each time the app starts, so they stay valid when the bundle changes.
 
-Data: Transfermarkt, via the Kaggle datasets [player-scores](https://www.kaggle.com/datasets/davidcariboo/player-scores) by davidcariboo and [football-datasets](https://www.kaggle.com/datasets/xfkzujqjvx97n/football-datasets) by salimt. Coursework only.
+Data: contract dates for 500 players, collected by hand by the team, and Transfermarkt values via the Kaggle dataset [player-scores](https://www.kaggle.com/datasets/davidcariboo/player-scores) by davidcariboo. Coursework only.

@@ -1,0 +1,64 @@
+"""One model sample per contract row: features known at the anchor, value change after it.
+
+The anchor is 1 July of the row's season, or the contract start when the contract was signed
+later that summer, so the contract a row describes is always in force at its own anchor.
+"""
+import numpy as np
+import pandas as pd
+
+FEATURES = ["age", "position", "value_now", "value_change_12m",
+            "years_left", "contract_years", "years_into_contract"]
+YEAR_DAYS = 365.25
+
+
+def asof(valuations: pd.DataFrame, player_id: pd.Series, at: pd.Series,
+         columns: list[str]) -> pd.DataFrame:
+    """The player's latest valuation row on or before each date: `columns` plus its date."""
+    left = pd.DataFrame({"player_id": player_id.to_numpy(), "_at": at.to_numpy(),
+                         "_row": np.arange(len(at))}).sort_values("_at")
+    right = valuations[["player_id", "date", *columns]].sort_values("date")
+    m = pd.merge_asof(left, right, left_on="_at", right_on="date", by="player_id",
+                      direction="backward").sort_values("_row")
+    return m[[*columns, "date"]].set_axis(at.index)
+
+
+def _value_asof(valuations: pd.DataFrame, player_id: pd.Series, at: pd.Series) -> pd.DataFrame:
+    return asof(valuations, player_id, at, ["market_value_in_eur"]).rename(
+        columns={"market_value_in_eur": "value"})
+
+
+def build_samples(contracts: pd.DataFrame, valuations: pd.DataFrame, players: pd.DataFrame, *,
+                  horizon: int = 1, values_until: str = "2026-06-12",
+                  max_staleness_days: int = 365) -> pd.DataFrame:
+    """Features and log-ratio target y_h{horizon} for each contract row."""
+    c = contracts.reset_index(drop=True)
+    anchor = np.maximum(c["anchor_date"], c["contract_start"])
+    out = pd.DataFrame({
+        "rank": c["rank"],
+        "player_id": c["player_id"],
+        "origin": c["origin"] if "origin" in c else "manual",
+        "season": c["anchor_date"].dt.year,
+        "anchor_date": anchor,
+    })
+
+    now = _value_asof(valuations, c["player_id"], anchor)
+    # A value older than the staleness limit says little about the player at the anchor
+    fresh = (anchor - now["date"]).dt.days <= max_staleness_days
+    out["value_now"] = now["value"].where(fresh)
+    year_ago = _value_asof(valuations, c["player_id"], anchor - pd.DateOffset(years=1))
+    out["value_change_12m"] = np.log(out["value_now"] / year_ago["value"])
+
+    profile = players.drop_duplicates("player_id").set_index("player_id")
+    dob = c["player_id"].map(profile["date_of_birth"])
+    out["age"] = (anchor - dob).dt.days / YEAR_DAYS
+    out["position"] = c["player_id"].map(profile["position"])
+    out["years_left"] = (c["contract_end"] - anchor).dt.days / YEAR_DAYS
+    out["contract_years"] = (c["contract_end"] - c["contract_start"]).dt.days / YEAR_DAYS
+    out["years_into_contract"] = (anchor - c["contract_start"]).dt.days / YEAR_DAYS
+
+    target_at = anchor + pd.DateOffset(years=horizon)
+    later = _value_asof(valuations, c["player_id"], target_at)
+    # No target if the horizon runs past the data, or no valuation landed after the anchor
+    observed = (target_at <= pd.Timestamp(values_until)) & (later["date"] > anchor)
+    out[f"y_h{horizon}"] = np.log(later["value"] / out["value_now"]).where(observed)
+    return out

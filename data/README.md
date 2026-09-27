@@ -2,12 +2,11 @@
 
 | Folder | Contents | In git? |
 | --- | --- | --- |
-| `raw/player-scores/` | Kaggle `davidcariboo/player-scores` parquet (copy from team Drive `Dataset/player-scores`) | No |
-| `raw/football-datasets/` | Kaggle `xfkzujqjvx97n/football-datasets` (salimt) parquet | No |
+| `raw/player-scores/` | Kaggle `davidcariboo/player-scores` parquet; only `player_valuations` and `players` are read | No |
 | `interim/` | Cleaned tables with parsed dates | No |
-| `processed/` | Player-season panel used for training | No |
-| `manual/` | Our manually collected samples (rubric requirement, see its README) | Yes |
-| `synthetic/` | Any augmented or generated data, never mixed with `manual/` | Yes |
+| `processed/` | `samples.parquet`, the 1,000 modelling samples | No |
+| `manual/` | `contracts.csv`, the 500 hand-collected contracts, and `contract_issues.csv` | README only; data on Drive |
+| `synthetic/` | `contract_span_samples.csv`, the augmented rows, never mixed with `manual/` | README only; data on Drive |
 
 Column meanings, completeness and join rates: `Dataset/Dataset_Overview.xlsx` in the team Drive.
 

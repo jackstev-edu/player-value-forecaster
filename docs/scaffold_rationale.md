@@ -33,7 +33,7 @@ The system forecasts how a football player's Transfermarkt market value will mov
 | Requirement | Where it lives | Status |
 | --- | --- | --- |
 | Functional and useful, with performance measurement | `evaluation/`, baselines, ablation plan | Scaffolded |
-| 500+ manual samples, synthetic kept separate | `data/manual/`, `data/synthetic/` | **Undecided** |
+| 500+ manual samples, synthetic kept separate | `data/manual/`, `data/synthetic/` | Done 2026-09-27: 500 contracts, augmented to 1,000 (`docs/scope_change.md`) |
 | Two of three model types | `models/gbm.py`, `models/foundation.py` | Slots ready |
 | Public GUI on HF Spaces | `app/`, `scripts/deploy_space.py` | Runs locally on mock data |
 | GenAI documentation | `docs/genai_log.md` | Started |
