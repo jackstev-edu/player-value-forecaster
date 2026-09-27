@@ -550,8 +550,9 @@ def make_explanation(pid, horizon: int = 1) -> str:
               "real value to land inside this range 8 times out of 10.")
     # The forecast's anchor is when its knowledge stops, not the last valuation
     anchor = fmt_day(getattr(r, "anchor_date", None)) or "the forecast was made"
-    limits = ("<small>Based only on past Transfermarkt valuations. It does not know about "
-              f"injuries, contracts or transfers after {anchor}.</small>")
+    limits = ("<small>Based on past Transfermarkt valuations, age, position and the contract "
+              "we looked up by hand. It does not know about injuries, new contracts or "
+              f"transfers after {anchor}.</small>")
 
     parts = [EXPLAIN_TITLE]
     n_history = history_count(pid)
@@ -577,11 +578,10 @@ def make_footer(manifest: dict) -> str:
     kaggle = "https://www.kaggle.com/datasets"
     # Credits open in a new tab so filter state survives
     return (
-        '<p>Data: Transfermarkt, via the Kaggle datasets '
+        '<p>Data: contract dates for 500 players collected by hand by the team; '
+        'Transfermarkt values, via the Kaggle dataset '
         f'<a href="{kaggle}/davidcariboo/player-scores" target="_blank" rel="noopener">player-scores</a>'
-        ' by davidcariboo and '
-        f'<a href="{kaggle}/xfkzujqjvx97n/football-datasets" target="_blank" rel="noopener">football-datasets</a>'
-        ' by salimt.</p>'
+        ' by davidcariboo.</p>'
         '<p>Coursework for CMU 24-679 (Yunus Polatoglu &amp; Jack Stevens). '
         'Not for transfer or betting decisions.</p>'
         f'<p>Model {version}, built {built}.</p>'

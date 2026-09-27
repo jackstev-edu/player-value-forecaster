@@ -1,5 +1,8 @@
 # Data coverage
 
+> **Historical, 2026-09-27.** This describes the retired Kaggle panel. The project now models the
+> 500 hand-collected contracts (`docs/scope_change.md`). Only the valuation notes still apply.
+
 What the data can actually support, measured on 2026-09-19 against the parquet in the team Drive
 (`Dataset/player-scores` and `Dataset/football-datasets`). Figures are for the nine chosen
 leagues unless stated. `docs/decisions.md` records what we decided off the back of this.

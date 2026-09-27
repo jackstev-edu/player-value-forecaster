@@ -5,7 +5,21 @@ What we are building, in the order we will build it. Agreed 2026-09-19.
 Status values: `todo`, `wip`, `done`, `blocked`. Update the status column as work lands —
 this file is the shared plan, `docs/decisions.md` is the record of why.
 
-**The critical path is tasks 6 → 10 → 15.** Task 6 gates every context feature, task 10 is the
+> **Scope change, 2026-09-27.** The 500 hand-collected contracts (task 19) are now the dataset,
+> augmented to 1,000 samples; the Kaggle panel of phases 1–2 is retired. See
+> `docs/scope_change.md` and decisions #36–#42. Phases 1–2 below are kept as history. The
+> **new critical path is tasks 23 → 13 → 14 → 15**, run on `data/processed/samples.parquet`.
+>
+> | # | Task | Owner | Status | Notes |
+> | --- | --- | --- | --- | --- |
+> | 23 | Build the 1,000-sample dataset | Yunus | done | `scripts/build_dataset.py`: 419 manual + 581 contract-span rows. 34 tests. |
+> | 24 | Clean the contract sheet | Yunus, Jack | todo | 250 non-URL sources (249 Yunus), 10 rows with missing dates (6 Jack's blank rows), 2 expired before anchor, 2 starting a season late. See `data/manual/contract_issues.csv` after a build. |
+> | 25 | GUI to the new scope | Jack | todo | Only 1-season forecasts now; horizon selector still offers 2 and 3. League fields in the bundle schema. |
+>
+> Tasks 13–15 still apply, with player-grouped folds instead of the season split (#41) and
+> the ablation reframed as "does contract length beat age plus current value?".
+
+**The critical path was tasks 6 → 10 → 15.** Task 6 gates every context feature, task 10 is the
 project's actual thesis, and task 15 is the result the report is built on. Everything else can
 move around those three.
 
@@ -60,7 +74,7 @@ Jack left numbered slots in `src/pvf/features/build_panel.py`; these fill them i
 | # | Task | Owner | Status | Notes |
 | --- | --- | --- | --- | --- |
 | 18 | Sofascore ratings experiment | Yunus | todo | Download the Kaggle set, join on name + birth year to the top-5 subset, ablate. The result decides whether we invest in the full scrape (decision #8). |
-| 19 | **Manual dataset, 500+ rows** | | todo | **Rubric requirement and currently blocking.** The only task here with no dependencies, so it can start immediately. Candidates in `docs/decisions.md`; the human-baseline-forecast option is strongest because it doubles as a benchmark for the report. |
+| 19 | **Manual dataset, 500+ rows** | Yunus, Jack | done | Contract start/end for the top 500 players, filled 2026-09-27, now the core dataset (#36). Original note: **Rubric requirement and currently blocking.** The only task here with no dependencies, so it can start immediately. Candidates in `docs/decisions.md`; the human-baseline-forecast option is strongest because it doubles as a benchmark for the report. |
 | 20 | Confirm the second model family | | todo | `chronos` is proposed in the config. Check it against the rubric. |
 | 21 | Deadline, deliverables, rubric questions | | todo | Parked 2026-09-19. The 500-vs-1000 sample discrepancy needs an instructor answer. |
 | 22 | Positional rank, the rest of slot 4 | Yunus | done | Rank, peer count and percentile against same-position players at the player's club and in his league, per anchor (#22). Uncovered a fourth silent trap: `players.position` uses the string "Missing" rather than null, which was producing rank-1-of-1 groups (#23). |
