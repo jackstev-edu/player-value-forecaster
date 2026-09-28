@@ -90,26 +90,41 @@ from pvf.features.samples import PANEL_FEATURES, add_panel_features, drop_unmatc
 
 
 def samples_frame():
+    # A sample's season is the year of its anchor: 1 July, or a later summer signing date
     return pd.DataFrame({
         "player_id": [1, 1, 2], "season": [2021, 2022, 2021],
+        "anchor_date": pd.to_datetime(["2021-07-01", "2022-07-01", "2021-07-01"]),
         "origin": ["manual", "span", "span"],
         "value_now": [20e6, 40e6, 5e6], "age": [21.5, 22.5, 30.0],
     })
 
 
 def panel_frame():
+    # A panel season is the season just played, so season S is measured on 1 July S+1
     return pd.DataFrame({
-        "player_id": [1, 1], "season": [2021, 2020],
+        "player_id": [1, 1], "season": [2020, 2019],
+        "anchor_date": pd.to_datetime(["2021-07-01", "2020-07-01"]),
         "minutes": [2500, 900], "club_squad_value_eur": [8e8, 7e8],
         # Panel copies of sample columns and panel targets must never cross over
         "value_eur": [1.0, 1.0], "age": [99.0, 99.0], "y_h1": [0.5, 0.5], "value_h1": [1.0, 1.0],
     })
 
 
-def test_panel_features_join_on_player_and_season():
+def test_panel_features_join_on_player_and_anchor_year():
     out = add_panel_features(samples_frame(), panel_frame())
     assert out.loc[0, "minutes"] == 2500
     assert out.loc[0, "club_squad_value_eur"] == 8e8
+
+
+def test_panel_row_measured_after_the_anchor_is_never_joined():
+    # Panel season 2021 is measured on 1 July 2022, a year after a 2021 sample's anchor:
+    # it holds the sample's own target value, so equal season labels must not match
+    panel = pd.concat([panel_frame(), pd.DataFrame({
+        "player_id": [1], "season": [2021], "anchor_date": pd.to_datetime(["2022-07-01"]),
+        "minutes": [9999], "club_squad_value_eur": [9e9]})], ignore_index=True)
+    out = add_panel_features(samples_frame(), panel)
+    assert out.loc[0, "minutes"] == 2500
+    assert out.loc[1, "minutes"] == 9999  # the 2022 sample is anchored on 1 July 2022
 
 
 def test_panel_features_never_borrow_another_season():

@@ -33,14 +33,22 @@ YEAR_DAYS = 365.25
 
 
 def add_panel_features(samples: pd.DataFrame, panel: pd.DataFrame) -> pd.DataFrame:
-    """Join the gathered features for the sample's own season; `in_panel` marks a match.
+    """Join the panel row measured on the sample's own anchor summer; `in_panel` marks a match.
 
-    Panel rows are measured at 1 July, which is never after a sample's anchor, so a
-    same-season row cannot see the future. Other seasons are never borrowed.
+    A panel season is the season just played, so panel season S is measured on 1 July S+1,
+    while a sample of season S is anchored on 1 July S or later that summer. The key is
+    therefore the year of the panel's anchor, never the season label: equal labels would
+    hand each sample the snapshot taken on its own target date. Other years are never borrowed.
     """
     cols = [c for c in PANEL_FEATURES if c in panel.columns]
-    joined = samples.merge(panel[["player_id", "season", *cols]].assign(in_panel=True),
-                           on=["player_id", "season"], how="left", validate="many_to_one")
+    right = (panel[["player_id", "anchor_date", *cols]]
+             .rename(columns={"anchor_date": "panel_anchor"})
+             .assign(season=lambda d: d["panel_anchor"].dt.year, in_panel=True))
+    joined = samples.merge(right, on=["player_id", "season"], how="left", validate="many_to_one")
+    late = joined["panel_anchor"] > joined["anchor_date"]
+    if late.any():
+        raise ValueError(f"{int(late.sum())} panel rows measured after their sample's anchor")
+    joined = joined.drop(columns="panel_anchor")
     joined["in_panel"] = joined["in_panel"].notna()
     for c in PANEL_FEATURES:
         if c not in joined:
