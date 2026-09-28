@@ -2,13 +2,14 @@
 
 Each fold trains on the other players' rows (manual and span), early-stops on a held-out
 share of those training players, and scores only the fold's manual rows (splits.py).
+The same held-out players then calibrate the GBM band to its nominal 80% (gbm.py).
 """
 import numpy as np
 import pandas as pd
 
 from pvf.evaluation.metrics import interval_coverage, mae_log, median_ape_eur
 from pvf.evaluation.splits import player_folds
-from pvf.models.baselines import AgePositionCurve, NoChange
+from pvf.models.baselines import AgePositionCurve, LinearBaseline, NoChange
 from pvf.models.gbm import QuantileGBM
 
 TARGET = "y_h1"
@@ -25,7 +26,8 @@ def _split_val(train: pd.DataFrame, share: float, seed: int) -> tuple[pd.DataFra
 
 def cross_validate(samples: pd.DataFrame, feature_sets: dict[str, list[str]], *,
                    quantiles: list[float], params: dict, n_splits: int = 5, seed: int = 42,
-                   val_share: float = 0.15, min_count: int = 5) -> pd.DataFrame:
+                   val_share: float = 0.15, min_count: int = 5,
+                   calibrate: bool = True) -> pd.DataFrame:
     """Long frame of out-of-fold predictions: fold, row, model, pred (median), q10, q90."""
     samples = samples[samples[TARGET].notna()]
     out = []
@@ -41,8 +43,12 @@ def cross_validate(samples: pd.DataFrame, feature_sets: dict[str, list[str]], *,
         add("no_change", NoChange().fit(train, train[TARGET]).predict(test))
         add("age_position",
             AgePositionCurve(min_count=min_count).fit(train, train[TARGET]).predict(test))
+        add("linear", LinearBaseline().fit(train, train[TARGET]).predict(test))
         for name, features in feature_sets.items():
-            p = QuantileGBM([1], quantiles, params, seed).fit(fit_part, val_part, features).predict(test)
+            model = QuantileGBM([1], quantiles, params, seed).fit(fit_part, val_part, features)
+            if calibrate:
+                model.calibrate(val_part)
+            p = model.predict(test)
             add(name, p["q50"].to_numpy(), p["q10"].to_numpy(), p["q90"].to_numpy())
     return pd.concat(out, ignore_index=True)
 

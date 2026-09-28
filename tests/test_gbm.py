@@ -9,12 +9,12 @@ FAST = {"n_estimators": 60, "learning_rate": 0.1, "num_leaves": 7, "min_child_sa
         "verbose": -1}
 
 
-def _frame(n: int, seed: int = 0) -> pd.DataFrame:
+def _frame(n: int, seed: int = 0, noise: float = 0.3) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
     age = rng.uniform(18, 34, n)
     pos = rng.choice(["Attack", "Defender", "Goalkeeper"], n)
     # Young players rise, old ones fall, plus noise so the quantile band has width
-    y = 0.08 * (26 - age) + rng.normal(0, 0.3, n)
+    y = 0.08 * (26 - age) + rng.normal(0, noise, n)
     return pd.DataFrame({"age": age, "position": pos,
                          "value_change_12m": rng.normal(0, 0.5, n), "y_h1": y})
 
@@ -83,3 +83,23 @@ def test_early_stopping_uses_val():
 def test_predict_before_fit_raises():
     with pytest.raises(RuntimeError):
         QuantileGBM(horizons=[1], quantiles=[0.5]).predict(_frame(5))
+
+
+def _coverage(model, test):
+    out = model.predict(test)
+    return ((test["y_h1"] >= out["q10"]) & (test["y_h1"] <= out["q90"])).mean()
+
+
+def test_calibrate_widens_a_too_narrow_band_to_about_80_percent():
+    # Trained on calmer data than it meets later, the band comes out too narrow
+    model = _fit(_frame(800, noise=0.1))
+    test = _frame(2000, seed=7)
+    assert _coverage(model, test) < 0.7
+    model.calibrate(_frame(800, seed=8))
+    assert 0.74 < _coverage(model, test) < 0.86
+
+
+def test_calibrate_keeps_quantiles_ordered():
+    model = _fit(_frame(400)).calibrate(_frame(200, seed=9))
+    out = model.predict(_frame(300, seed=10))
+    assert (out["q10"] <= out["q50"]).all() and (out["q50"] <= out["q90"]).all()

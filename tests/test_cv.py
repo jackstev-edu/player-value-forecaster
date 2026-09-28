@@ -36,7 +36,7 @@ def test_every_manual_row_predicted_once_per_model():
 
 def test_models_include_baselines_and_gbm():
     oof = _run(_samples())
-    assert set(oof["model"]) == {"no_change", "age_position", "gbm"}
+    assert set(oof["model"]) == {"no_change", "age_position", "linear", "gbm"}
     gbm = oof[oof["model"] == "gbm"]
     assert gbm[["q10", "q90"]].notna().all().all()
     assert (oof.loc[oof["model"] == "no_change", "pred"] == 0).all()
@@ -75,3 +75,22 @@ def test_summary_has_subset_without_backfilled_rows():
     assert n["all", "gbm"] == len(manual)
     assert n["no_backfill", "gbm"] == (~manual["value_backfilled"]).sum()
     assert {"mae_log", "median_ape_eur", "coverage_80"} <= set(table.columns)
+
+
+def test_band_is_calibrated_on_validation_players_only(monkeypatch):
+    s = _samples()
+    import pvf.evaluation.cv as cv
+    seen, real_fit, real_cal = {}, cv.QuantileGBM.fit, cv.QuantileGBM.calibrate
+
+    def fit_spy(self, train, val, features):
+        seen["train"], seen["val"] = set(train["player_id"]), set(val["player_id"])
+        return real_fit(self, train, val, features)
+
+    def cal_spy(self, cal):
+        seen.setdefault("cal_ok", []).append(set(cal["player_id"]) == seen["val"])
+        return real_cal(self, cal)
+
+    monkeypatch.setattr(cv.QuantileGBM, "fit", fit_spy)
+    monkeypatch.setattr(cv.QuantileGBM, "calibrate", cal_spy)
+    _run(s)
+    assert seen["cal_ok"] and all(seen["cal_ok"])

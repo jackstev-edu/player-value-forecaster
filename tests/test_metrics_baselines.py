@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 
 from pvf.evaluation.metrics import interval_coverage, mae_log, median_ape_eur
-from pvf.models.baselines import AgePositionCurve, NoChange
+from pvf.models.baselines import AgePositionCurve, LinearBaseline, NoChange
 
 
 def test_metrics_basic():
