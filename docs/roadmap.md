@@ -6,14 +6,14 @@ Status values: `todo`, `wip`, `done`, `blocked`. Update the status column as wor
 this file is the shared plan, `docs/decisions.md` is the record of why.
 
 > **Scope change, 2026-09-27.** The 500 hand-collected contracts (task 19) are now the dataset,
-> augmented to 1,000 samples; the Kaggle panel of phases 1–2 is retired. See
-> `docs/scope_change.md` and decisions #36–#42. Phases 1–2 below are kept as history. The
+> augmented to 1,000 samples. The Kaggle panel of phases 1–2 now only supplies 42 joined
+> features (#43). See `docs/scope_change.md` and decisions #36–#44. Phases 1–2 below are kept as history. The
 > **new critical path is tasks 23 → 13 → 14 → 15**, run on `data/processed/samples.parquet`.
 >
 > | # | Task | Owner | Status | Notes |
 > | --- | --- | --- | --- | --- |
-> | 23 | Build the 1,000-sample dataset | Yunus | done | `scripts/build_dataset.py`: 419 manual + 581 contract-span rows. 34 tests. |
-> | 24 | Clean the contract sheet | Yunus, Jack | todo | 250 non-URL sources (249 Yunus), 10 rows with missing dates (6 Jack's blank rows), 2 expired before anchor, 2 starting a season late. See `data/manual/contract_issues.csv` after a build. |
+> | 23 | Build the 1,000-sample dataset | Yunus | done | `scripts/build_dataset.py`: 500 manual + 500 contract-span rows, 49 features (7 sample + 42 panel). Every manual row modelled (#44). |
+> | 24 | Clean the contract sheet | Yunus, Jack | wip | Errors all fixed (dates filled; 4 wrong contracts corrected, Jack to confirm Noa Lang). Left: 247 non-URL sources, a warning only. |
 > | 25 | GUI to the new scope | Jack | todo | Only 1-season forecasts now; horizon selector still offers 2 and 3. League fields in the bundle schema. |
 >
 > Tasks 13–15 still apply, with player-grouped folds instead of the season split (#41) and

@@ -6,9 +6,52 @@ later that summer, so the contract a row describes is always in force at its own
 import numpy as np
 import pandas as pd
 
-FEATURES = ["age", "position", "value_now", "value_change_12m",
-            "years_left", "contract_years", "years_into_contract"]
+SAMPLE_FEATURES = ["age", "position", "value_now", "value_change_12m",
+                   "years_left", "contract_years", "years_into_contract"]
+# Gathered player-season features, joined from the panel by (player_id, season). An
+# allowlist, so panel targets (y_h*, value_h*) and panel copies of sample columns stay out.
+PANEL_FEATURES = [
+    # playing time and output, last season
+    "squad_games", "played_games", "minutes", "starts", "start_share",
+    "goals", "assists", "goals_assists_per90",
+    # club and league strength
+    "competition_id", "club_squad_size", "club_squad_value_eur", "club_median_value_eur",
+    "club_top5_value_eur", "league_club_count", "league_total_value_eur",
+    "league_median_club_value_eur", "club_value_share_of_league",
+    "played_ucl", "played_uel", "played_uecl",
+    # rank against peers
+    "position_rank_at_club", "position_peers_at_club", "position_pctile_at_club",
+    "position_rank_in_league", "position_peers_in_league", "position_pctile_in_league",
+    # value history, health, moves, fixed profile
+    "peak_value_eur", "value_vs_peak", "n_valuations_so_far", "years_of_history",
+    "injury_spells_12m", "injured_at_anchor", "days_injured_12m", "has_injury_record",
+    "transferred_12m", "loaned_12m", "transfer_fee_12m", "has_transfer_record",
+    "sub_position", "foot", "height_in_cm", "is_eu",
+]
+FEATURES = SAMPLE_FEATURES + PANEL_FEATURES
 YEAR_DAYS = 365.25
+
+
+def add_panel_features(samples: pd.DataFrame, panel: pd.DataFrame) -> pd.DataFrame:
+    """Join the gathered features for the sample's own season; `in_panel` marks a match.
+
+    Panel rows are measured at 1 July, which is never after a sample's anchor, so a
+    same-season row cannot see the future. Other seasons are never borrowed.
+    """
+    cols = [c for c in PANEL_FEATURES if c in panel.columns]
+    joined = samples.merge(panel[["player_id", "season", *cols]].assign(in_panel=True),
+                           on=["player_id", "season"], how="left", validate="many_to_one")
+    joined["in_panel"] = joined["in_panel"].notna()
+    for c in PANEL_FEATURES:
+        if c not in joined:
+            joined[c] = np.nan
+    return joined
+
+
+def drop_unmatched_augmented(samples: pd.DataFrame) -> pd.DataFrame:
+    """Augmented rows need a panel row; manual rows are collected data and always stay."""
+    keep = samples["in_panel"] | (samples["origin"] == "manual")
+    return samples[keep].reset_index(drop=True)
 
 
 def asof(valuations: pd.DataFrame, player_id: pd.Series, at: pd.Series,
