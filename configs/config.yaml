@@ -7,8 +7,20 @@ project:
 samples:
   anchor_month_day: "07-01"        # settled, decision #1; a later-summer signing moves the anchor to the signing date
   max_value_staleness_days: 365    # no sample value if the latest valuation is older than this
-  # Kaggle is now used only for these two tables: values give the target, players give age and position
+  # values give the target, players give age and position; the rest arrive via the panel below
   kaggle_tables: ["player_valuations", "players"]
+  # Augmented rows without a panel row for their season are dropped before the cap (decision #43)
+  require_panel_for_augmented: true
+
+# Player-season panel (scripts/build_panel.py): the source of the gathered features that
+# are joined onto each sample by (player_id, season). Measured at 1 July, never after a
+# sample's anchor, so no joined feature can see the future.
+panel:
+  anchor_month_day: "07-01"
+  min_anchor_season: 2013          # appearances starts 2012-07-03, so 2012 has no prior season
+  max_value_staleness_days: 365
+  # Poland (PL1) is out: games only covers it from 2024
+  leagues: ["GB1", "IT1", "ES1", "L1", "FR1", "PO1", "BE1", "NL1", "TR1"]
 
 target:
   horizons: [1]                    # one season ahead; 2023/24 rows have no 2- or 3-season target
@@ -23,6 +35,18 @@ model:
   families:
     trained_from_scratch: lightgbm
     off_the_shelf: chronos         # OPEN DECISION: second rubric model type
+  # LightGBM settings sized for ~800 training rows per fold: shallow trees, slow learning,
+  # early stopping on held-out training players (scripts/train_gbm.py)
+  gbm:
+    num_leaves: 15
+    min_child_samples: 20
+    learning_rate: 0.03
+    n_estimators: 2000
+    early_stopping_rounds: 100
+    colsample_bytree: 0.8
+    verbose: -1
+  val_share: 0.15                  # share of each fold's training players held out for early stopping
+  baseline_min_count: 5            # AgePositionCurve cell size; 800 rows leave cells thin
 
 split:
   method: player_group_kfold       # every player on one side of each fold; only manual rows scored

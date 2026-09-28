@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from pvf.features.samples import FEATURES, build_samples
+from pvf.features.samples import FEATURES, SAMPLE_FEATURES, build_samples
 
 T = pd.Timestamp
 
@@ -81,4 +81,77 @@ def test_features_do_not_move_when_later_valuations_change():
     later = valuations(("2021-09-01", 99e6), ("2021-12-01", 1e6))
     before = build_samples(contracts(), BASE, PLAYERS)
     after = build_samples(contracts(), pd.concat([BASE, later]), PLAYERS)
-    pd.testing.assert_frame_equal(before[FEATURES], after[FEATURES])
+    pd.testing.assert_frame_equal(before[SAMPLE_FEATURES], after[SAMPLE_FEATURES])
+
+
+# Gathered player-season features joined from the panel (decision #43)
+
+from pvf.features.samples import PANEL_FEATURES, add_panel_features, drop_unmatched_augmented  # noqa: E402
+
+
+def samples_frame():
+    # A sample's season is the year of its anchor: 1 July, or a later summer signing date
+    return pd.DataFrame({
+        "player_id": [1, 1, 2], "season": [2021, 2022, 2021],
+        "anchor_date": pd.to_datetime(["2021-07-01", "2022-07-01", "2021-07-01"]),
+        "origin": ["manual", "span", "span"],
+        "value_now": [20e6, 40e6, 5e6], "age": [21.5, 22.5, 30.0],
+    })
+
+
+def panel_frame():
+    # A panel season is the season just played, so season S is measured on 1 July S+1
+    return pd.DataFrame({
+        "player_id": [1, 1], "season": [2020, 2019],
+        "anchor_date": pd.to_datetime(["2021-07-01", "2020-07-01"]),
+        "minutes": [2500, 900], "club_squad_value_eur": [8e8, 7e8],
+        # Panel copies of sample columns and panel targets must never cross over
+        "value_eur": [1.0, 1.0], "age": [99.0, 99.0], "y_h1": [0.5, 0.5], "value_h1": [1.0, 1.0],
+    })
+
+
+def test_panel_features_join_on_player_and_anchor_year():
+    out = add_panel_features(samples_frame(), panel_frame())
+    assert out.loc[0, "minutes"] == 2500
+    assert out.loc[0, "club_squad_value_eur"] == 8e8
+
+
+def test_panel_row_measured_after_the_anchor_is_never_joined():
+    # Panel season 2021 is measured on 1 July 2022, a year after a 2021 sample's anchor:
+    # it holds the sample's own target value, so equal season labels must not match
+    panel = pd.concat([panel_frame(), pd.DataFrame({
+        "player_id": [1], "season": [2021], "anchor_date": pd.to_datetime(["2022-07-01"]),
+        "minutes": [9999], "club_squad_value_eur": [9e9]})], ignore_index=True)
+    out = add_panel_features(samples_frame(), panel)
+    assert out.loc[0, "minutes"] == 2500
+    assert out.loc[1, "minutes"] == 9999  # the 2022 sample is anchored on 1 July 2022
+
+
+def test_panel_features_never_borrow_another_season():
+    out = add_panel_features(samples_frame(), panel_frame())
+    assert pd.isna(out.loc[1, "minutes"])  # 2022 has no panel row; 2020 must not fill it
+    assert out["in_panel"].tolist() == [True, False, False]
+
+
+def test_panel_targets_and_duplicates_do_not_cross_over():
+    out = add_panel_features(samples_frame(), panel_frame())
+    assert not {"y_h1", "value_h1", "value_eur"} & set(out.columns)
+    assert out.loc[0, "age"] == 21.5 and out.loc[0, "value_now"] == 20e6
+
+
+def test_missing_panel_columns_become_nan_rather_than_error():
+    out = add_panel_features(samples_frame(), panel_frame())
+    assert set(PANEL_FEATURES) <= set(out.columns)
+    assert out["goals"].isna().all()
+
+
+def test_panel_features_are_model_features_without_leaky_names():
+    assert set(PANEL_FEATURES) <= set(FEATURES)
+    assert not any(f.startswith(("y_h", "value_h")) for f in FEATURES)
+
+
+def test_unmatched_augmented_rows_are_dropped_but_manual_rows_kept():
+    s = add_panel_features(samples_frame(), panel_frame())
+    s.loc[0, "in_panel"] = False  # a manual row without a panel row is still collected data
+    out = drop_unmatched_augmented(s)
+    assert out["origin"].tolist() == ["manual"]

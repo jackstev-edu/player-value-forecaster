@@ -4,7 +4,7 @@
 | --- | --- | --- |
 | `raw/player-scores/` | Kaggle `davidcariboo/player-scores` parquet; only `player_valuations` and `players` are read | No |
 | `interim/` | Cleaned tables with parsed dates | No |
-| `processed/` | `samples.parquet`, the 1,000 modelling samples | No |
+| `processed/` | `samples.parquet`, the 1,000 modelling samples; `panel.parquet`, the player-season panel the 42 joined features come from (`scripts/build_panel.py`) | No |
 | `manual/` | `contracts.csv`, the 500 hand-collected contracts, and `contract_issues.csv` | README only; data on Drive |
 | `synthetic/` | `contract_span_samples.csv`, the augmented rows, never mixed with `manual/` | README only; data on Drive |
 
