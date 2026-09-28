@@ -29,6 +29,25 @@ PANEL_FEATURES = [
     "sub_position", "foot", "height_in_cm", "is_eu",
 ]
 FEATURES = SAMPLE_FEATURES + PANEL_FEATURES
+# Groups for the ablation: each is dropped in turn from the full model. Age, position and
+# current value are never dropped, since every baseline already has them.
+CORE_FEATURES = ["age", "position", "value_now", "value_change_12m"]
+FEATURE_GROUPS = {
+    "contract": ["years_left", "contract_years", "years_into_contract"],
+    "performance": ["squad_games", "played_games", "minutes", "starts", "start_share",
+                    "goals", "assists", "goals_assists_per90"],
+    "club_league": ["competition_id", "club_squad_size", "club_squad_value_eur",
+                    "club_median_value_eur", "club_top5_value_eur", "league_club_count",
+                    "league_total_value_eur", "league_median_club_value_eur",
+                    "club_value_share_of_league", "played_ucl", "played_uel", "played_uecl"],
+    "peer_rank": ["position_rank_at_club", "position_peers_at_club", "position_pctile_at_club",
+                  "position_rank_in_league", "position_peers_in_league",
+                  "position_pctile_in_league"],
+    "value_history": ["peak_value_eur", "value_vs_peak", "n_valuations_so_far", "years_of_history"],
+    "injuries": ["injury_spells_12m", "injured_at_anchor", "days_injured_12m", "has_injury_record"],
+    "transfers": ["transferred_12m", "loaned_12m", "transfer_fee_12m", "has_transfer_record"],
+    "profile": ["sub_position", "foot", "height_in_cm", "is_eu"],
+}
 YEAR_DAYS = 365.25
 
 
