@@ -84,9 +84,13 @@ def drop_unmatched_augmented(samples: pd.DataFrame) -> pd.DataFrame:
 def asof(valuations: pd.DataFrame, player_id: pd.Series, at: pd.Series,
          columns: list[str]) -> pd.DataFrame:
     """The player's latest valuation row on or before each date: `columns` plus its date."""
-    left = pd.DataFrame({"player_id": player_id.to_numpy(), "_at": at.to_numpy(),
+    # merge_asof needs both date keys at the same resolution; a Series built from one
+    # Timestamp comes out in seconds
+    left = pd.DataFrame({"player_id": player_id.to_numpy(),
+                         "_at": at.to_numpy().astype("datetime64[ns]"),
                          "_row": np.arange(len(at))}).sort_values("_at")
-    right = valuations[["player_id", "date", *columns]].sort_values("date")
+    right = (valuations[["player_id", "date", *columns]]
+             .astype({"date": "datetime64[ns]"}).sort_values("date"))
     m = pd.merge_asof(left, right, left_on="_at", right_on="date", by="player_id",
                       direction="backward").sort_values("_row")
     return m[[*columns, "date"]].set_axis(at.index)
@@ -95,6 +99,29 @@ def asof(valuations: pd.DataFrame, player_id: pd.Series, at: pd.Series,
 def _value_asof(valuations: pd.DataFrame, player_id: pd.Series, at: pd.Series) -> pd.DataFrame:
     return asof(valuations, player_id, at, ["market_value_in_eur"]).rename(
         columns={"market_value_in_eur": "value"})
+
+
+def core_features_at(player_id: pd.Series, anchor: pd.Series, valuations: pd.DataFrame,
+                     players: pd.DataFrame, *, max_staleness_days: int = 365) -> pd.DataFrame:
+    """Age, position, current value and its 12-month log change, as known at each anchor.
+
+    Needs no contract or panel row, so any valued player can be scored. `value_date` is the
+    date of the valuation behind `value_now`.
+    """
+    now = _value_asof(valuations, player_id, anchor)
+    # A value older than the staleness limit says little about the player at the anchor
+    fresh = (anchor - now["date"]).dt.days <= max_staleness_days
+    out = pd.DataFrame(index=anchor.index)
+    out["value_now"] = now["value"].where(fresh)
+    out["value_date"] = now["date"].where(fresh)
+    year_ago = _value_asof(valuations, player_id, anchor - pd.DateOffset(years=1))
+    out["value_change_12m"] = np.log(out["value_now"] / year_ago["value"])
+
+    profile = players.drop_duplicates("player_id").set_index("player_id")
+    ids = pd.Series(player_id.to_numpy(), index=anchor.index)
+    out["age"] = (anchor - ids.map(profile["date_of_birth"])).dt.days / YEAR_DAYS
+    out["position"] = ids.map(profile["position"])
+    return out
 
 
 def build_samples(contracts: pd.DataFrame, valuations: pd.DataFrame, players: pd.DataFrame, *,
@@ -111,17 +138,10 @@ def build_samples(contracts: pd.DataFrame, valuations: pd.DataFrame, players: pd
         "anchor_date": anchor,
     })
 
-    now = _value_asof(valuations, c["player_id"], anchor)
-    # A value older than the staleness limit says little about the player at the anchor
-    fresh = (anchor - now["date"]).dt.days <= max_staleness_days
-    out["value_now"] = now["value"].where(fresh)
-    year_ago = _value_asof(valuations, c["player_id"], anchor - pd.DateOffset(years=1))
-    out["value_change_12m"] = np.log(out["value_now"] / year_ago["value"])
-
-    profile = players.drop_duplicates("player_id").set_index("player_id")
-    dob = c["player_id"].map(profile["date_of_birth"])
-    out["age"] = (anchor - dob).dt.days / YEAR_DAYS
-    out["position"] = c["player_id"].map(profile["position"])
+    core = core_features_at(c["player_id"], anchor, valuations, players,
+                            max_staleness_days=max_staleness_days)
+    for col in ["value_now", "value_change_12m", "age", "position"]:
+        out[col] = core[col]
     out["years_left"] = (c["contract_end"] - anchor).dt.days / YEAR_DAYS
     out["contract_years"] = (c["contract_end"] - c["contract_start"]).dt.days / YEAR_DAYS
     out["years_into_contract"] = (anchor - c["contract_start"]).dt.days / YEAR_DAYS

@@ -1,10 +1,11 @@
 {
-  "created_at": "2026-09-16T08:07:40+00:00",
-  "is_mock": true,
-  "model_version": "mock-0",
+  "created_at": "2026-09-29T17:42:25+00:00",
+  "is_mock": false,
+  "model_version": "lgbm-core-v1",
   "data_versions": {
-    "player-scores": "n/a",
-    "football-datasets": "n/a"
+    "player-scores": "valuations through 2026-06-12",
+    "samples": "1000 rows",
+    "panel_anchor": "2026-07-01"
   },
-  "notes": "Synthetic bundle for GUI development. Not real players."
+  "notes": "One-season forecasts from 2026-07-01 by the 4-feature core LightGBM, trained on the 1000 contract samples. Caveat: those samples are survivor-biased (median training change +0.34 log, 71% rose; all panel players 2013-2025: -0.10, 32% rose), so medians lean upward. 96% of these forecasts predict a rise, median +0.94 log. Training covered ages 16-31 and values from EUR 0.75M (10th percentile); forecasts outside that range, mostly older and cheaper players, are extrapolations."
 }
