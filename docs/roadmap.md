@@ -14,7 +14,7 @@ this file is the shared plan, `docs/decisions.md` is the record of why.
 > | --- | --- | --- | --- | --- |
 > | 23 | Build the 1,000-sample dataset | Yunus | done | `scripts/build_dataset.py`: 500 manual + 500 contract-span rows, 49 features (7 sample + 42 panel). Every manual row modelled (#44). |
 > | 24 | Clean the contract sheet | Yunus, Jack | wip | Errors all fixed (dates filled; 4 wrong contracts corrected, Jack to confirm Noa Lang). Left: 247 non-URL sources, a warning only. |
-> | 25 | GUI to the new scope | Jack | todo | Only 1-season forecasts now; horizon selector still offers 2 and 3. League fields in the bundle schema. |
+> | 25 | GUI to the new scope | Jack | todo | Real bundle is in (PR #8): h = 1 only, so drop the 2- and 3-season options. Consider showing `manifest.notes` (the bias caveat, #48). |
 >
 > Tasks 13–15 still apply, with player-grouped folds instead of the season split (#41) and
 > the ablation reframed as "does contract length beat age plus current value?".
@@ -58,16 +58,16 @@ Jack left numbered slots in `src/pvf/features/build_panel.py`; these fill them i
 
 | # | Task | Owner | Status | Notes |
 | --- | --- | --- | --- | --- |
-| 13 | Baselines | | todo | No change, and the age × position curve. The model has to beat these or there is no story. |
-| 14 | LightGBM per horizon, plus quantile models | | todo | One model per horizon (1, 2, 3). Quantiles 10/50/90 give the GUI a range. |
-| 15 | **Time-split backtest and ablation** | | todo | Remove context, performance and injuries one group at a time. This answers "does context beat age plus current value?" — the headline result. |
+| 13 | Baselines | Yunus | done | No change, age × position curve, and a ridge linear baseline (#46). All beaten by or tied with LightGBM; linear ties it (0.602 vs 0.615 log MAE). |
+| 14 | LightGBM per horizon, plus quantile models | Yunus | done | h = 1 only (#39). Quantiles 10/50/90, band calibrated by CQR to 79–81% coverage (#46). |
+| 15 | **Time-split backtest and ablation** | Yunus | done | Ablation under player-grouped CV (#47): no group beyond age, position and value helps. Plus a walk-forward backtest on five named players (#49). |
 
 ## Phase 4 — delivery
 
 | # | Task | Owner | Status | Notes |
 | --- | --- | --- | --- | --- |
-| 16 | Export the prediction bundle | | todo | To the schema already defined in `src/pvf/export/schema.py`. The app reads it unchanged. |
-| 17 | Report | | todo | Framed around the task 15 ablation. |
+| 16 | Export the prediction bundle | Yunus | done | `scripts/export_bundle.py`: 4,727 players, core model, `lgbm-core-v1` (#48). Known upward bias stated in the manifest. |
+| 17 | Report | | todo | Framed around the task 15 ablation (#47), with the backtest figure (#49) and the bias of #48 as limitations. |
 
 ## Running alongside
 
