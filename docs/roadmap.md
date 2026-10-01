@@ -9,12 +9,15 @@ this file is the shared plan, `docs/decisions.md` is the record of why.
 > augmented to 1,000 samples. The Kaggle panel of phases 1–2 now only supplies 42 joined
 > features (#43). See `docs/scope_change.md` and decisions #36–#44. Phases 1–2 below are kept as history. The
 > **new critical path is tasks 23 → 13 → 14 → 15**, run on `data/processed/samples.parquet`.
+> Tasks 23 to 25 are done; task 26 (decision #50) is the open one, since the upward bias is the
+> report's main limitation and the only finding a reader will challenge.
 >
 > | # | Task | Owner | Status | Notes |
 > | --- | --- | --- | --- | --- |
 > | 23 | Build the 1,000-sample dataset | Yunus | done | `scripts/build_dataset.py`: 500 manual + 500 contract-span rows, 49 features (7 sample + 42 panel). Every manual row modelled (#44). |
 > | 24 | Clean the contract sheet | Yunus, Jack | wip | Errors all fixed (dates filled; 4 wrong contracts corrected, Jack to confirm Noa Lang). Left: 247 non-URL sources, a warning only. |
-> | 25 | GUI to the new scope | Jack | todo | Real bundle is in (PR #8): h = 1 only, so drop the 2- and 3-season options. Consider showing `manifest.notes` (the bias caveat, #48). |
+> | 25 | GUI to the new scope | Jack | done | Horizons, sort labels and example labels now follow the loaded bundle, so the 2- and 3-season options disappear on their own. The bias of #48 is stated on the page, recomputed from the bundle rather than copied from `manifest.notes`. `tests/test_app_smoke.py` runs every callback against the shipped bundle. |
+> | 26 | **Second cohort to correct the upward bias** | | todo | Decision #50. Build the top 500 by value as of 1 Jul 2021 from `player_valuations`, follow forward, train alongside the existing 500. Measure a panel-trained core model first as the baseline: if that fixes the lean, skip the cohort. No hand collection needed (#47). |
 >
 > Tasks 13–15 still apply, with player-grouped folds instead of the season split (#41) and
 > the ablation reframed as "does contract length beat age plus current value?".
@@ -68,6 +71,7 @@ Jack left numbered slots in `src/pvf/features/build_panel.py`; these fill them i
 | --- | --- | --- | --- | --- |
 | 16 | Export the prediction bundle | Yunus | done | `scripts/export_bundle.py`: 4,727 players, core model, `lgbm-core-v1` (#48). Known upward bias stated in the manifest. |
 | 17 | Report | | todo | Framed around the task 15 ablation (#47), with the backtest figure (#49) and the bias of #48 as limitations. |
+| 27 | Bring the live Space back up | Jack | blocked | Bundle and app are deployed and verified byte-for-byte on `jackstev/player-value-forecaster`, but the Space will not start: `cpu-basic` quota is `limit=0` on the free account and all six of Jack's Spaces are already paused, so there is nothing to free. Needs a Space deleted, the quota period to reset, or PRO. |
 
 ## Running alongside
 
