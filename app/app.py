@@ -23,15 +23,28 @@ AGE_FLOOR, AGE_CEILING = 15, 45
 COLUMNS = ["Player", "Age", "Position", "Club", "League", "Nationality", "Value",
            "Change", "Likely range"]
 
-# Radio labels mapped to the forecast horizon in seasons
-HORIZONS = {"1 season": 1, "2 seasons": 2, "3 seasons": 3}
+# Every horizon this app can label; the bundle decides which are offered
+HORIZON_LABELS = {1: "1 season", 2: "2 seasons", 3: "3 seasons"}
+# Replaced at startup by the horizons the loaded bundle actually forecasts
+HORIZONS = {label: h for h, label in HORIZON_LABELS.items()}
 DEFAULT_HORIZON = "1 season"
 # Sort label to (column prefix, ascending); prefixes gain the horizon suffix
-SORTS = {"Current value": ("current_value_eur", False),
-         "Biggest predicted rise": ("change", False),
-         "Biggest predicted fall": ("change", True),
-         "Most uncertain": ("width", False)}
+SORT_RULES = {"Current value": ("current_value_eur", False),
+              "Biggest predicted rise": ("change", False),
+              "Biggest predicted fall": ("change", True),
+              "Most uncertain": ("width", False)}
+# Renamed at startup when the bundle predicts no falls for this label to find
+FALL_LABEL = "Biggest predicted fall"
+NO_FALL_LABEL = "Smallest predicted rise"
+SORTS = dict(SORT_RULES)
 DEFAULT_SORT = "Current value"
+
+# Text columns shown to the user, where a gap must not read as nan
+LABEL_COLUMNS = ["position", "sub_position", "club_name", "league_name",
+                 "league_country", "nationality"]
+UNKNOWN_LABEL = "Unknown"
+# Placeholders the pipeline writes for a field it could not fill
+MISSING_TOKENS = {"", "missing", "unknown", "none", "na", "n/a", "nan"}
 
 CARD_PROMPT = "Select a player in the table."
 CARD_GONE = "That player isn't in the current results. Select another player in the table."
@@ -88,6 +101,40 @@ def normalise_name(text) -> str:
     return " ".join(bare.translate(EXTRA_FOLDS).split())
 
 
+def offered_horizons(forecasts) -> dict[str, int]:
+    """Label to seasons for the horizons this bundle really forecasts."""
+    present = sorted({int(h) for h in forecasts["horizon"].dropna().unique()
+                      if int(h) in HORIZON_LABELS})
+    # A bundle with no usable horizon still leaves the control working
+    return {HORIZON_LABELS[h]: h for h in present or [1]}
+
+
+def sort_labels(players, horizon: int) -> dict[str, tuple[str, bool]]:
+    """Rename the fall sort when nothing in this bundle is predicted to fall."""
+    change = players.get(f"change_{horizon}")
+    if change is not None and (change < 0).any():
+        return dict(SORT_RULES)
+    # Sorting ascending would surface the smallest rises, not any fall
+    return {NO_FALL_LABEL if k == FALL_LABEL else k: v for k, v in SORT_RULES.items()}
+
+
+def falling_share(players, horizon: int) -> float:
+    """Share of players the bundle predicts will lose value."""
+    change = players[f"change_{horizon}"].dropna()
+    return 0.0 if change.empty else float((change < 0).mean())
+
+
+def clean_labels(players):
+    """Nulls and pipeline placeholders become one Unknown, never a shown nan."""
+    players = players.copy()
+    for col in LABEL_COLUMNS:
+        # Strip first, so " " and "Missing " are caught alongside a true null
+        text = players[col].astype("string").str.strip()
+        unknown = text.isna() | text.str.lower().isin(MISSING_TOKENS)
+        players[col] = text.mask(unknown, UNKNOWN_LABEL)
+    return players
+
+
 def add_derived_columns(players, forecasts):
     """Precompute search keys and per horizon forecast numbers once at startup."""
     players = players.copy()
@@ -117,7 +164,14 @@ def width_cutoffs(players) -> dict[int, float]:
 
 
 PLAYERS, HISTORY, FORECASTS, MANIFEST = load_bundle()
-PLAYERS = add_derived_columns(PLAYERS, FORECASTS)
+# The model dropped to one horizon, so the control follows the bundle
+HORIZONS = offered_horizons(FORECASTS)
+DEFAULT_HORIZON = next(iter(HORIZONS))
+DEFAULT_H = HORIZONS[DEFAULT_HORIZON]
+PLAYERS = add_derived_columns(clean_labels(PLAYERS), FORECASTS)
+# Labels are settled here, once the forecasts are known
+SORTS = sort_labels(PLAYERS, DEFAULT_H)
+FALLING_SHARE = falling_share(PLAYERS, DEFAULT_H)
 HISTORY_BY_ID, FORECASTS_BY_ID, PLAYER_BY_ID = build_lookups(PLAYERS, HISTORY, FORECASTS)
 # Fixed at startup so a filter never moves what counts as wide
 WIDTH_CUTOFF = width_cutoffs(PLAYERS)
@@ -318,13 +372,28 @@ def is_valued(p):
     return p["current_value_eur"] >= MIN_EXAMPLE_VALUE
 
 
+def directional_label(rising: str, falling: str):
+    """Label chosen from the sign of the picked player's own forecast."""
+    def choose(row) -> str:
+        change = row.get(CHANGE_COL)
+        # Only claim a decline when this player really is forecast to fall
+        return falling if pd.notna(change) and change < 0 else rising
+    return choose
+
+
+# Ranking columns follow the bundle, since a horizon other than 1 may be all it has
+CHANGE_COL, WIDTH_COL = f"change_{DEFAULT_H}", f"width_{DEFAULT_H}"
+
 # (label, who qualifies, ranking column, take the largest); star goes first
-# so it matches the featured player and no other rule can claim it
+# so it matches the featured player and no other rule can claim it. A label
+# may be a function of the picked row, for the two that assert a direction.
 EXAMPLE_RULES = [
     ("Established star", lambda p: p["current_value_eur"].notna(), "current_value_eur", True),
-    ("Rising young player", lambda p: (p["age"] <= 23) & is_valued(p), "change_1", True),
-    ("Veteran in decline", lambda p: (p["age"] >= 31) & is_valued(p), "change_1", False),
-    ("Hardest to predict", is_valued, "width_1", True),
+    (directional_label("Rising young player", "Young player in decline"),
+     lambda p: (p["age"] <= 23) & is_valued(p), CHANGE_COL, True),
+    (directional_label("Veteran: smallest predicted rise", "Veteran in decline"),
+     lambda p: (p["age"] >= 31) & is_valued(p), CHANGE_COL, False),
+    ("Hardest to predict", is_valued, WIDTH_COL, True),
 ]
 
 
@@ -337,7 +406,8 @@ def pick_examples(players) -> list[tuple[str, int, str]]:
         if pool.empty:
             continue
         best = pool.sort_values([col, "player_id"], ascending=[not largest, True]).iloc[0]
-        picks.append((label, int(best["player_id"]), best["name"]))
+        text = label(best) if callable(label) else label
+        picks.append((text, int(best["player_id"]), best["name"]))
         taken.add(int(best["player_id"]))
     return picks
 
@@ -385,7 +455,7 @@ def money_ticks(top: float, target: int = 5) -> tuple[list[float], list[str]]:
 
 
 def make_chart(pid: int):
-    """Value history line plus 1 to 3 season forecast with a 10 to 90% band."""
+    """Value history line plus every bundled horizon with a 10 to 90% band."""
     player = PLAYER_BY_ID.get(pid)
     if player is None:
         return None
@@ -509,7 +579,8 @@ def change_text(p50, current, value_date=None) -> str:
 def spread_text(rows: dict) -> str:
     """How the range's width moves from the nearest to the furthest horizon."""
     first, last = min(HORIZONS.values()), max(HORIZONS.values())
-    if first not in rows or last not in rows:
+    # One horizon leaves nothing to compare, so the sentence is dropped
+    if first == last or first not in rows or last not in rows:
         return ""
     near = rows[first].p90_eur - rows[first].p10_eur
     far = rows[last].p90_eur - rows[last].p10_eur
@@ -569,6 +640,22 @@ def make_explanation(pid, horizon: int = 1) -> str:
     return "\n\n".join(parts)
 
 
+def optimism_note(players, horizon: int) -> str:
+    """Warn when forecasts lean one way, so the training bias is visible."""
+    change = players[f"change_{horizon}"].dropna()
+    if change.empty:
+        return ""
+    rising = float((change > 0).mean())
+    # Only worth saying when the lean is strong enough to mislead
+    if rising < 0.6:
+        return ""
+    typical = float(change.median()) + 1
+    return (f"These forecasts lean optimistic: {rising:.0%} of players are predicted to rise, "
+            f"typically to {typical:.1f} times their current value. The model learned from "
+            "500 players collected because they became valuable, so it has seen few careers "
+            "that stall or fade. Read the direction with that in mind.")
+
+
 def make_footer(manifest: dict) -> str:
     """Credits, coursework notice and bundle stamp shown under everything."""
     version = manifest.get("model_version") or "unknown"
@@ -615,7 +702,29 @@ CSS = (Path(__file__).parent / "style.css").read_text(encoding="utf-8")
 
 APP_TITLE = "Player Value Forecaster"
 LOOK_AHEAD_INFO = "How many seasons ahead the forecast looks"
+# Horizon wording is written once here, since three places repeat it
+HORIZON_SPAN = (seasons_text(max(HORIZONS.values())) if len(HORIZONS) == 1 else
+                f"one to {max(HORIZONS.values())} seasons")
+# "over the next ..." reads better with a bare noun than with "1 season"
+HEAD_SPAN = "season" if list(HORIZONS.values()) == [1] else HORIZON_SPAN
+OPTIMISM_NOTE = optimism_note(PLAYERS, horizon_of(DEFAULT_HORIZON))
+HOW_IT_WORKS = (
+    f"Each forecast predicts the change in value {HORIZON_SPAN} after the "
+    "1 July snapshot, from the player's age, position, current value and how that value "
+    "moved over the past year. The shaded band is where the model expects the real value "
+    "to land 8 times out of 10.\n\n"
+    "It was trained on 500 contracts we collected by hand, each reused for its other "
+    "seasons to reach 1,000 samples, and tested by five-fold cross-validation grouped by "
+    "player, so no player appears in both training and test data. A walk-forward check on "
+    "five named players put 6 of 10 forecasts inside the band.\n\n"
+    "Known limits: those 500 players were chosen because they became valuable, which is "
+    "why the forecasts lean upward; the model cannot see injuries, transfers or contract "
+    "news after the snapshot; and players much older or cheaper than the training set are "
+    "extrapolations.")
 SORT_INFO = "Order the table by value, predicted change or how uncertain the forecast is"
+# Naming the share stops the fall sort implying falls are common here
+if 0 < FALLING_SHARE < 0.1:
+    SORT_INFO += f". Only {FALLING_SHARE:.0%} of players are predicted to fall"
 TABLE_NOTE = ("⚠ low-confidence forecast. Likely range: where the model aims for the real "
               "value to land 8 times out of 10.")
 
@@ -623,19 +732,21 @@ with gr.Blocks(title=APP_TITLE) as demo:
     ids_state = gr.State([])
     selected_state = gr.State(None)
 
-    gr.HTML("""
+    gr.HTML(f"""
       <header class="pvf-head">
         <h1>Player value forecaster</h1>
         <p>Pick a football player to see where their Transfermarkt value is likely heading
-        over the next one to three seasons.</p>
+        over the next {HEAD_SPAN}.</p>
       </header>""")
     if MANIFEST.get("is_mock"):
         gr.HTML('<div class="pvf-mock">Demo data: these players and forecasts are invented '
                 'while the models are being trained.</div>')
+    elif OPTIMISM_NOTE:
+        gr.HTML(f'<div class="pvf-mock">{OPTIMISM_NOTE}</div>')
 
     # Results are built first so the examples can target them, placed below
     horizon = gr.Radio(list(HORIZONS), value=DEFAULT_HORIZON, label="Look ahead",
-                       info=LOOK_AHEAD_INFO, render=False)
+                       info=LOOK_AHEAD_INFO, render=False, visible=len(HORIZONS) > 1)
     sort_by = gr.Dropdown(list(SORTS), value=DEFAULT_SORT, label="Sort by", info=SORT_INFO,
                           render=False)
     count = gr.Markdown(render=False)
@@ -694,11 +805,7 @@ with gr.Blocks(title=APP_TITLE) as demo:
                     card.render()
 
     with gr.Accordion("How the forecast works", open=False, elem_classes="pvf-how"):
-        gr.Markdown(
-            "Each forecast predicts the change in value 1, 2 and 3 seasons after the "
-            "1 July snapshot. The shaded band is the range the model expects the value to land "
-            "in 8 times out of 10. The model will be tested on past seasons it never saw. "
-            "Results will appear here once the real model is in.")
+        gr.Markdown(HOW_IT_WORKS)
 
     # Footer sits outside every container so it stays visible at all times
     gr.HTML(make_footer(MANIFEST), elem_classes="pvf-foot")

@@ -515,14 +515,19 @@ def test_change_and_limits_fall_back_without_dates(app):
     assert app.fmt_day(pd.NaT) is None and app.fmt_day(pd.Timestamp("2026-07-01")) == "1 Jul 2026"
 
 
-def test_how_it_works_makes_no_backtest_claim(app):
+def test_how_it_works_states_its_limits(app):
+    """A real model now ships, so the text must name its weaknesses, not just its scores."""
     how = accordion(app, "How the forecast works")
     text = " ".join(c.value for c in descendants(how) if isinstance(c, gr.Markdown))
-    assert "backtest" not in text.lower()
-    assert ("The model will be tested on past seasons it never saw. Results will appear here "
-            "once the real model is in.") in text
-    # The rest of the explanation is kept
+    # The old placeholder promised results that have since arrived
+    assert "Results will appear here" not in text
     assert "8 times out of 10" in text
+    # Every honest limit from decisions #48 and #49 has to survive an edit
+    lowered = text.lower()
+    assert "lean upward" in lowered, "the upward bias must stay stated"
+    assert "cannot see injuries" in lowered
+    assert "extrapolation" in lowered
+    assert "cross-validation" in lowered
 
 
 def test_explanation_describes_how_the_range_widens(app):
