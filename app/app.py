@@ -5,6 +5,7 @@ so the Space stays fast and the pipeline can change independently.
 """
 import json
 import math
+import os
 import unicodedata
 from datetime import datetime
 from pathlib import Path
@@ -13,7 +14,8 @@ import gradio as gr
 import pandas as pd
 import plotly.graph_objects as go
 
-BUNDLE_DIR = Path(__file__).parent / "predictions"
+# Tests point this at a fixed mock bundle; the Space always uses ./predictions
+BUNDLE_DIR = Path(os.environ.get("PVF_BUNDLE_DIR", Path(__file__).parent / "predictions"))
 MAX_ROWS = 200
 AGE_FLOOR, AGE_CEILING = 15, 45
 

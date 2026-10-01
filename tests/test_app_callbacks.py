@@ -8,6 +8,8 @@ import plotly.graph_objects as go
 import pytest
 
 APP_PATH = Path(__file__).resolve().parents[1] / "app" / "app.py"
+# Invented players with known names and all three horizons; the real bundle changes each export
+MOCK_BUNDLE = Path(__file__).resolve().parent / "fixtures" / "mock_bundle"
 
 # A nationality the bundle cannot contain, so these filters match nobody
 ABSENT_NATION = "Nowhereland"
@@ -18,7 +20,10 @@ def app():
     """Import app.py by path so the Space folder stays self-contained."""
     spec = importlib.util.spec_from_file_location("pvf_app_under_test", APP_PATH)
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    # The bundle is read at import, so the override only has to hold while it runs
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("PVF_BUNDLE_DIR", str(MOCK_BUNDLE))
+        spec.loader.exec_module(module)
     return module
 
 
