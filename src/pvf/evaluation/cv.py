@@ -69,3 +69,23 @@ def summarize(oof: pd.DataFrame, samples: pd.DataFrame) -> pd.DataFrame:
                 "coverage_80": interval_coverage(g[TARGET], g["q10"], g["q90"]) if has_band else np.nan,
             })
     return pd.DataFrame(rows)
+
+
+def paired_diff(oof: pd.DataFrame, samples: pd.DataFrame, reference: str, others: list[str],
+                n_boot: int = 5000, seed: int = 0) -> pd.DataFrame:
+    """Mean absolute log error of each model minus the reference's, row by row, with a
+    95% bootstrap interval. Positive means worse than the reference. With 500 scored rows,
+    gaps inside the interval are noise, so an ablation reads the interval, not the mean.
+    """
+    df = oof.join(samples[TARGET], on="row")
+    err = (df[TARGET] - df["pred"]).abs().groupby([df["row"], df["model"]]).first().unstack()
+    rng = np.random.default_rng(seed)
+    idx = rng.integers(0, len(err), size=(n_boot, len(err)))
+    rows = []
+    for m in others:
+        d = (err[m] - err[reference]).to_numpy()
+        boots = d[idx].mean(axis=1)
+        lo, hi = (np.percentile(boots, [2.5, 97.5]) if d.any() else (0.0, 0.0))
+        rows.append({"model": m, "diff": float(d.mean()), "lo": float(lo), "hi": float(hi),
+                     "share_better": float((d < 0).mean())})
+    return pd.DataFrame(rows)

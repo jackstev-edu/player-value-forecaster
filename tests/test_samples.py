@@ -155,3 +155,11 @@ def test_unmatched_augmented_rows_are_dropped_but_manual_rows_kept():
     s.loc[0, "in_panel"] = False  # a manual row without a panel row is still collected data
     out = drop_unmatched_augmented(s)
     assert out["origin"].tolist() == ["manual"]
+
+
+def test_feature_groups_partition_the_features():
+    from pvf.features.samples import CORE_FEATURES, FEATURE_GROUPS
+    grouped = [f for g in FEATURE_GROUPS.values() for f in g]
+    assert len(grouped) == len(set(grouped))  # no feature in two groups
+    assert set(grouped) | set(CORE_FEATURES) == set(FEATURES)
+    assert not set(grouped) & set(CORE_FEATURES)

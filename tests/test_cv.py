@@ -94,3 +94,16 @@ def test_band_is_calibrated_on_validation_players_only(monkeypatch):
     monkeypatch.setattr(cv.QuantileGBM, "calibrate", cal_spy)
     _run(s)
     assert seen["cal_ok"] and all(seen["cal_ok"])
+
+
+def test_paired_diff_reports_mean_and_interval_against_a_reference():
+    from pvf.evaluation.cv import paired_diff
+    s = _samples()
+    oof = _run(s)
+    # A model compared with itself differs by exactly zero
+    same = paired_diff(oof, s, reference="gbm", others=["gbm"])
+    assert same.loc[0, ["diff", "lo", "hi"]].tolist() == [0.0, 0.0, 0.0]
+    # no_change is far worse than gbm on this learnable signal, so the whole interval is above zero
+    worse = paired_diff(oof, s, reference="gbm", others=["no_change"]).iloc[0]
+    assert worse["lo"] > 0 and worse["lo"] <= worse["diff"] <= worse["hi"]
+    assert set(worse.index) >= {"model", "diff", "lo", "hi", "share_better"}
