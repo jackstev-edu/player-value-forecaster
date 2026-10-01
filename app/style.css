@@ -138,6 +138,13 @@ div.pvf-chart .main-svg .gridlayer path { stroke: var(--border-color-primary) !i
   div.pvf-main input[type=range] {
     box-sizing: content-box; padding: 18px 0; background-clip: content-box;
   }
+  /* The card's forecast table has three columns in 390px, so Median broke
+     as "Media n" and a value as "EUR 70.4 m". Keep each cell on one line
+     and let the table scroll sideways inside the card if it still overflows. */
+  div.prose.pvf-card div:has(> table) { overflow-x: auto; }
+  div.prose.pvf-card th, div.prose.pvf-card td { white-space: nowrap; }
+  /* Padding is the first thing to give back when the columns are tight */
+  div.prose.pvf-card th, div.prose.pvf-card td { padding-left: 6px; padding-right: 6px; }
   /* Plotly's 22px toolbar icons are too small to tap, so hide them */
   div.pvf-chart .modebar-container { display: none; }
 }
