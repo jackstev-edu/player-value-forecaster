@@ -16,9 +16,9 @@ Forecasts how a football player's Transfermarkt market value will move over the 
 | `data/manual/` | Manually collected samples, kept separate per the rubric |
 | `data/synthetic/` | Augmented or generated data, kept separate per the rubric |
 | `app/` | Self-contained Hugging Face Space. Reads only `app/predictions/` |
-| `scripts/` | CLI entry points (`build_dataset.py`, contract sheet, mock data, deploy) |
-| `tests/` | Sheet checks, sample leakage, augmentation, folds, metrics, schema and GUI checks |
-| `docs/` | Report drafts, decision log, GenAI usage log |
+| `scripts/` | CLI entry points, listed in run order below |
+| `tests/` | Sheet checks, sample leakage, augmentation, folds, metrics, export, schema and GUI checks |
+| `docs/` | Decision log, roadmap, GenAI usage log, report figures (`docs/figures/`) |
 
 ## Quick start
 
@@ -26,11 +26,24 @@ Forecasts how a football player's Transfermarkt market value will move over the 
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 pip install -e .
-python scripts/build_dataset.py --data-dir <Drive>/Dataset --sheet "<Drive>/Contract Data Collection.xlsx"
-python scripts/make_mock_predictions.py   # writes a fake bundle so the GUI runs today
-python app/app.py                         # opens http://127.0.0.1:7860
-pytest
+pytest                                    # the app tests use a fixed mock bundle in tests/fixtures/
+python app/app.py                         # the committed real bundle, http://127.0.0.1:7860
 ```
+
+## Rebuilding everything
+
+Each step reads the one before. `<Dataset>` is the team Drive's `Dataset` folder (or set `FV_DATA_DIR`).
+
+| Step | Command | Writes |
+| --- | --- | --- |
+| 1. Player-season panel | `python scripts/build_panel.py --data-dir <Dataset>` | `data/processed/panel.parquet` |
+| 2. 1,000 samples | `python scripts/build_dataset.py --data-dir <Dataset> [--sheet "<Drive>/Contract Data Collection.xlsx"]` | `data/processed/samples.parquet`, `data/synthetic/` |
+| 3. Cross-validation | `python scripts/train_gbm.py [--ablation]` | out-of-fold predictions and metrics in `data/processed/` |
+| 4. App bundle | `python scripts/export_bundle.py --data-dir <Dataset>` | `app/predictions/` |
+| 5. Player backtest | `python scripts/backtest_players.py --data-dir <Dataset>` | `docs/figures/backtest_players.{png,csv}` |
+| 6. Deploy | `python scripts/deploy_space.py <user>/<space>` | the Hugging Face Space |
+
+`scripts/make_contract_sheet.py` made the blank contract sheet that task 19 filled in; it is kept for the record.
 
 ## Pipeline contract
 
