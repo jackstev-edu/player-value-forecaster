@@ -1,150 +1,195 @@
-@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&display=swap');
 
-/* Spaces loads this sheet before Gradio's, so ties lose. Each selector
-   outranks its Gradio rival outright: ".gradio-container-X *" (0,1,0)
-   resets borders, ".prose *" (0,2,0) and ".prose h1/h3/a" (0,2,1) set
-   colours. Locally Gradio re-prefixes rules with ".gradio-container ...
-   .contain", so selectors must not start with .gradio-container
-   themselves. Dark rules add .dark to the light selector, so they
-   outrank it by one class whatever the load order. */
+/* FIFA style redesign, prompt 1: screens, cards and basic polish. The pitch
+   floor and the fine detail land in prompt 3.
 
-/* (0,2,2) beats .prose h1 at (0,2,1) */
-.prose header.pvf-head { padding: 8px 2px 4px; }
-.prose header.pvf-head h1 {
-  font-family: "Barlow Condensed", "Arial Narrow", sans-serif;
-  font-weight: 700; font-size: 2.6rem; line-height: 1.05;
-  color: #14402F; margin: 0 0 6px;
+   Every rule above the page marker goes through Gradio's css=. Locally Gradio
+   prefixes those with .contain and they win; on Spaces they are unprefixed and
+   load before Gradio's own sheets, so ties lose. Each one is therefore scoped
+   under #pvf, since an id outranks Gradio's class only rules in both places.
+   See the Redesign rules in docs/gui_notes.md. */
+
+/* Condensed face on everything that should read like a game menu */
+#pvf .pvf-hero h1,
+#pvf .pvf-kicker,
+#pvf .pvf-h2,
+#pvf button.pvf-big-btn,
+#pvf .pc-name,
+#pvf .pc-value,
+#pvf .pc-pos,
+#pvf .pvf-player-head h2,
+#pvf .pvf-big,
+#pvf .pvf-featured-label {
+  font-family: "Barlow Condensed", "Arial Narrow", sans-serif !important;
 }
-.prose header.pvf-head p { max-width: 62ch; color: #4A5751; margin: 0; }
 
-/* (0,2,1) beats both the border reset and .prose * colour */
-.prose div.pvf-mock {
-  border-left: 4px solid #D4A72C; background: #FBF4DF;
-  padding: 8px 12px; color: #17201C; border-radius: 2px;
+/* Screens stack their own content; only one is ever visible */
+#pvf .pvf-screen { gap: 18px !important; }
+
+/* Big bold buttons on top of size="lg" */
+#pvf button.pvf-big-btn {
+  font-size: 1.5rem !important; font-weight: 800 !important; letter-spacing: 0.05em;
+  text-transform: uppercase; min-height: 60px; padding: 12px 28px !important;
+  border-radius: 6px !important;
+}
+#pvf button.pvf-big-btn.primary { box-shadow: 0 6px 24px rgba(212, 167, 44, 0.22); }
+#pvf button.pvf-big-btn:focus-visible { outline: 3px solid #F2F3EC; outline-offset: 3px; }
+#pvf .pvf-actions { gap: 14px !important; }
+
+/* Home hero */
+#pvf .prose header.pvf-hero {
+  background: rgba(8, 20, 14, 0.92); border: 1px solid #2C4D3D; border-radius: 10px;
+  padding: 26px 26px 22px;
+}
+#pvf .prose header.pvf-hero h1 {
+  font-size: clamp(2.6rem, 7vw, 4.6rem) !important; line-height: 0.92 !important;
+  font-weight: 800; text-transform: uppercase; color: #F2F3EC !important;
+  margin: 4px 0 12px !important;
+}
+#pvf .prose header.pvf-hero p.pvf-kicker {
+  color: #D4A72C !important; text-transform: uppercase; letter-spacing: 0.14em;
+  font-weight: 700; font-size: 1rem !important; margin: 0;
+}
+#pvf .prose header.pvf-hero p.pvf-tagline {
+  color: #B5C2BA !important; font-size: 1.05rem; max-width: 52ch; margin: 0;
 }
 
-/* Column divs sit outside .prose, so (0,1,1) clears the reset */
-div.pvf-filters { border-top: 3px solid #14402F; }
-
-/* Look ahead and sort sit on one quiet strip above the table */
-div.pvf-view { border-top: 3px solid #D4A72C; }
-
-/* Card class lands on the block and inner .prose; (0,2,2) beats .prose h3 */
-div.prose.pvf-card h3 {
-  font-family: "Barlow Condensed", "Arial Narrow", sans-serif;
-  font-size: 1.7rem; color: #14402F; margin-bottom: 2px;
+/* One line lean warning, with its full text behind the Why button */
+#pvf .pvf-lean { align-items: center !important; gap: 12px !important; }
+#pvf .prose p.pvf-note-line {
+  color: #F2F3EC !important; background: #3A3219; border-left: 4px solid #D4A72C;
+  padding: 8px 12px; margin: 0; border-radius: 4px; font-weight: 600;
 }
-/* Highlighted forecast row in the player card */
-div.prose.pvf-card strong { color: #14402F; }
-
-/* "What this means" box under the chart; (0,2,2) beats .prose h4 */
-div.prose.pvf-explain h4 {
-  font-family: "Barlow Condensed", "Arial Narrow", sans-serif;
-  font-size: 1.25rem; color: #14402F; margin: 0 0 4px;
+#pvf .pvf-why-panel .prose p { color: #F2F3EC; margin: 0; }
+#pvf .pvf-why-panel, #pvf .pvf-how {
+  background: #0C1D15; border: 1px solid #2C4D3D; border-radius: 10px;
+  padding: 14px 18px !important;
 }
-/* Low confidence warning mirrors the demo banner's gold left edge */
-div.prose.pvf-explain blockquote {
-  border-left: 4px solid #D4A72C; background: #FBF4DF;
-  padding: 8px 12px; margin: 0 0 10px; border-radius: 2px;
-  color: #17201C; font-style: normal;
+#pvf .pvf-how .prose p { color: #F2F3EC; }
+
+#pvf .prose h2.pvf-h2 {
+  color: #F2F3EC !important; font-size: 2.1rem !important; font-weight: 800;
+  margin: 0 !important; text-transform: uppercase; line-height: 1.1;
 }
-div.prose.pvf-explain blockquote p { margin: 0; color: inherit; }
-/* Quieter small print; #56655E keeps 5.5:1 on the chalk page */
-div.prose.pvf-explain small { font-size: 0.82rem; color: #56655E; }
+#pvf .pvf-bar { align-items: center !important; gap: 16px !important; }
 
-/* Legend line under the table, same quiet tone as the small print */
-div.prose.pvf-note p { margin: 0; font-size: 0.85rem; color: #56655E; }
-
-/* Standing credit line; inner .prose only, so the rule is drawn once */
-div.prose.pvf-foot {
-  margin-top: 22px; padding-top: 10px; border-top: 1px solid #14402F;
-  font-size: 0.82rem; line-height: 1.5; color: #56655E;
+/* Player cards, shared by the Featured row and the Results grid */
+#pvf .pvf-grid, #pvf .pvf-featured {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px;
 }
-div.prose.pvf-foot p { margin: 3px 0; color: inherit; }
-/* (0,2,2) beats .prose a at (0,2,1) for colour and underline */
-div.prose.pvf-foot a { color: #14402F; text-decoration: none; }
-div.prose.pvf-foot a:hover { text-decoration: underline; }
+#pvf button.pvf-card {
+  display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left;
+  padding: 12px 14px !important; font: inherit; cursor: pointer; color: #F2F3EC;
+  background: linear-gradient(160deg, #173A2A 0%, #0C1D15 70%) !important;
+  border: 1px solid #2C4D3D !important; border-radius: 10px !important;
+}
+#pvf button.pvf-card:hover { border-color: #D4A72C !important; }
+#pvf button.pvf-card:focus-visible { outline: 3px solid #D4A72C; outline-offset: 2px; }
+#pvf .pc-top { display: flex; justify-content: space-between; align-items: center; }
+#pvf .pc-pos {
+  color: #D4A72C; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700;
+  font-size: 0.95rem;
+}
+#pvf .pc-flag { color: #FFC857; font-weight: 700; }
+#pvf .pc-name { font-size: 1.45rem; font-weight: 700; line-height: 1.05; margin-top: 2px; }
+#pvf .pc-meta { font-size: 0.85rem; color: #B5C2BA; }
+#pvf .pc-value { font-size: 1.9rem; font-weight: 800; line-height: 1; margin-top: 6px; }
+#pvf .pc-change { font-weight: 700; font-size: 0.95rem; }
+#pvf .pc-up { color: #6FD69A; }
+#pvf .pc-down { color: #FF8A7A; }
+#pvf .pc-flat { color: #B5C2BA; }
+#pvf .pc-range { font-size: 0.8rem; color: #B5C2BA; }
 
-/* Gradio sets .dark on body for system dark, Settings dark and ?__theme,
-   so keying on it matches the chart. One selector per rule: Gradio's
-   local prefixer strips only the first .dark in a comma list. */
-.dark .prose header.pvf-head h1 { color: #9FD3B5; }
-.dark div.prose.pvf-card h3 { color: #9FD3B5; }
-.dark div.prose.pvf-card strong { color: #9FD3B5; }
-.dark div.prose.pvf-explain h4 { color: #9FD3B5; }
-.dark .prose header.pvf-head p { color: #C9D1CC; }
-.dark .prose div.pvf-mock { background: #3A3219; color: #F2F3EC; }
-.dark div.prose.pvf-explain blockquote { background: #3A3219; color: #F2F3EC; }
-.dark div.prose.pvf-explain small { color: #9AA8A1; }
-.dark div.prose.pvf-note p { color: #9AA8A1; }
-/* Pitch green vanishes on the dark page, so lighten the border */
-.dark div.pvf-filters { border-top-color: #9FD3B5; }
-.dark div.prose.pvf-foot { border-top-color: #3E7A5B; color: #9AA8A1; }
-.dark div.prose.pvf-foot a { color: #9FD3B5; }
+/* Featured cards carry their rule label above the card */
+#pvf .pvf-featured-item { display: flex; flex-direction: column; gap: 6px; }
+#pvf .prose p.pvf-featured-label {
+  color: #D4A72C !important; text-transform: uppercase; letter-spacing: 0.08em;
+  font-weight: 700; font-size: 0.85rem; margin: 0;
+}
 
-/* Plotly writes fill and stroke inline and the server cannot know the
-   viewer's theme, so !important is needed to follow Gradio's variables.
-   Hover labels are left alone; the figure gives them a light box. */
-div.pvf-chart .main-svg .cartesianlayer text,
-div.pvf-chart .main-svg .infolayer text { fill: var(--body-text-color) !important; }
-div.pvf-chart .main-svg .gridlayer path { stroke: var(--border-color-primary) !important; }
+/* Search tiles */
+#pvf .pvf-tile {
+  background: #0C1D15; border: 1px solid #2C4D3D; border-radius: 10px;
+  padding: 12px 14px !important;
+}
+#pvf .pvf-tile-row { gap: 12px !important; }
+#pvf .pvf-age { align-items: flex-end !important; }
 
-/* Gradio defaults tables to monospace; body face reads better here */
-.pvf-table { --font-mono: var(--font); }
-/* (0,2,2) beats .wrap.svelte-* at (0,2,0), so "Change" never splits */
-.pvf-table th span.wrap { word-break: normal; overflow-wrap: normal; }
+/* Sort chips read as a row of buttons, not a stack of radios */
+#pvf .pvf-chips .wrap { display: flex !important; flex-wrap: wrap; gap: 8px !important; }
+#pvf .pvf-chips label {
+  border: 1px solid #2C4D3D !important; border-radius: 999px !important;
+  padding: 8px 16px !important; background: #12291E !important; min-height: 44px;
+}
+#pvf .pvf-chips label input { position: absolute; opacity: 0; }
+#pvf .pvf-chips label:has(input:checked) {
+  background: #1E4A33 !important; border-color: #D4A72C !important;
+}
+#pvf .pvf-chips label:focus-within { outline: 3px solid #D4A72C; outline-offset: 2px; }
 
+#pvf .pvf-count .prose p { color: #F2F3EC; margin: 0; }
+#pvf .pvf-note .prose p { color: #B5C2BA; font-size: 0.85rem; margin: 0; }
+
+/* Player screen header */
+#pvf .prose header.pvf-player-head {
+  background: rgba(8, 20, 14, 0.92); border: 1px solid #2C4D3D; border-radius: 10px;
+  padding: 18px 22px;
+}
+#pvf .prose header.pvf-player-head h2 {
+  font-size: clamp(2.2rem, 6vw, 3.6rem) !important; font-weight: 800; text-transform: uppercase;
+  line-height: 0.95 !important; margin: 6px 0 8px !important; color: #F2F3EC !important;
+}
+#pvf .prose header.pvf-player-head p { color: #B5C2BA !important; margin: 0; }
+#pvf .prose header.pvf-player-head p.pvf-big {
+  font-size: 2.2rem; font-weight: 800; color: #F2F3EC !important; margin-top: 8px;
+}
+#pvf .prose header.pvf-player-head .pc-flag { margin-left: 12px; }
+
+/* Markdown has no block fill of its own, so give it a panel over the dark page */
+#pvf .block.pvf-card-panel, #pvf .block.pvf-explain {
+  background: #0C1D15 !important; border: 1px solid #2C4D3D !important;
+  border-radius: 10px; padding: 12px 16px !important;
+}
+#pvf .pvf-card-panel .prose *, #pvf .pvf-explain .prose * { color: #F2F3EC; }
+#pvf .pvf-explain .prose blockquote {
+  border-left: 4px solid #D4A72C; background: #3A3219; padding: 8px 12px;
+  margin: 0 0 10px; border-radius: 4px; font-style: normal;
+}
+#pvf .pvf-explain .prose small { color: #B5C2BA; font-size: 0.82rem; }
+/* The card table must not break Median as "Media n" on a phone */
+#pvf .pvf-card-panel th, #pvf .pvf-card-panel td {
+  white-space: nowrap; padding-left: 6px; padding-right: 6px;
+}
+#pvf .pvf-card-panel div:has(> table) { overflow-x: auto; }
+
+/* Phone: two cards per row and full width buttons */
 @media (max-width: 640px) {
-  /* Phone order: controls, then chart, explanation and card, then the table */
-  div.pvf-side > div.pvf-detail { order: 1; }
-  div.pvf-side > div.pvf-results { order: 2; }
-  /* Gradio writes cell widths inline as a share of the visible box, which
-     squeezes words letter by letter; fixed widths need !important to win */
-  div.pvf-table th:nth-child(1), div.pvf-table div.virtual-row > div:nth-child(1) { --w: 118px; }
-  div.pvf-table th:nth-child(2), div.pvf-table div.virtual-row > div:nth-child(2) { --w: 48px; }
-  div.pvf-table th:nth-child(3), div.pvf-table div.virtual-row > div:nth-child(3) { --w: 110px; }
-  div.pvf-table th:nth-child(4), div.pvf-table div.virtual-row > div:nth-child(4) { --w: 130px; }
-  div.pvf-table th:nth-child(5), div.pvf-table div.virtual-row > div:nth-child(5) { --w: 105px; }
-  div.pvf-table th:nth-child(6), div.pvf-table div.virtual-row > div:nth-child(6) { --w: 105px; }
-  div.pvf-table th:nth-child(7), div.pvf-table div.virtual-row > div:nth-child(7) { --w: 78px; }
-  div.pvf-table th:nth-child(8), div.pvf-table div.virtual-row > div:nth-child(8) { --w: 72px; }
-  div.pvf-table th:nth-child(9), div.pvf-table div.virtual-row > div:nth-child(9) { --w: 150px; }
-  div.pvf-table th, div.pvf-table div.virtual-row > div {
-    width: var(--w) !important; min-width: var(--w) !important;
-    max-width: var(--w) !important; flex: 0 0 var(--w) !important;
+  #pvf .pvf-grid, #pvf .pvf-featured {
+    grid-template-columns: 1fr 1fr !important; gap: 8px !important;
   }
-  /* Header and rows share one scroller, so both widen and scroll together */
-  div.pvf-table table.header-table,
-  div.pvf-table div.virtual-body { min-width: 916px; }
-  /* Gradio 6.28 accepts pinned_columns but never renders it, so pin here */
-  div.pvf-table th.first-column,
-  div.pvf-table div.virtual-row > div.first-column {
-    position: sticky; left: 0; z-index: 2;
-    background: var(--table-even-background-fill);
-    box-shadow: 1px 0 0 var(--border-color-primary);
-  }
-  /* 44px tap targets; dropdown inputs carry no type attribute at all */
-  div.pvf-main button,
-  div.pvf-how button.label-wrap,
-  div.pvf-main label:has(input[type=radio]),
-  div.pvf-main label:has(input[type=checkbox]),
-  div.pvf-main input:not([type=range]):not([type=radio]):not([type=checkbox]) { min-height: 44px; }
-  /* Taller accordion bars keep their label and arrow on one centre line */
-  div.pvf-main button.label-wrap,
-  div.pvf-how button.label-wrap { display: flex; align-items: center; }
-  /* Slider number boxes sit in a 24px clipped frame; let it grow too */
-  div.pvf-main div.tab-like-container { height: 44px; }
-  /* Padding grows the slider's hit area while the drawn track stays thin */
-  div.pvf-main input[type=range] {
-    box-sizing: content-box; padding: 18px 0; background-clip: content-box;
-  }
-  /* The card's forecast table has three columns in 390px, so Median broke
-     as "Media n" and a value as "EUR 70.4 m". Keep each cell on one line
-     and let the table scroll sideways inside the card if it still overflows. */
-  div.prose.pvf-card div:has(> table) { overflow-x: auto; }
-  div.prose.pvf-card th, div.prose.pvf-card td { white-space: nowrap; }
-  /* Padding is the first thing to give back when the columns are tight */
-  div.prose.pvf-card th, div.prose.pvf-card td { padding-left: 6px; padding-right: 6px; }
+  #pvf .pc-name { font-size: 1.15rem; }
+  #pvf .pc-value { font-size: 1.45rem; }
+  #pvf button.pvf-big-btn { font-size: 1.25rem !important; padding: 10px 16px !important; }
+  #pvf .prose header.pvf-hero { padding: 20px 18px; }
+  #pvf .pvf-tile-row { flex-direction: column; }
   /* Plotly's 22px toolbar icons are too small to tap, so hide them */
-  div.pvf-chart .modebar-container { display: none; }
+  #pvf div.modebar-container { display: none !important; }
 }
+
+/* PAGE LEVEL RULES */
+/* Everything below goes into <head> unprefixed, because it styles html and body */
+/* Spaces SSR puts background: var(--body-background-fill) inline on html,
+   so only !important beats it */
+html { background: #05100A !important; }
+body, gradio-app, .gradio-container { background: transparent !important; }
+body { min-height: 100vh; }
+/* The hidden target for the browser Back hook must stay in the DOM */
+button.pvf-pop, .pvf-pop { display: none !important; }
+/* Gradio's own footer sits on the dark page, so give it a panel to stand on */
+.gradio-container .pvf-foot-dark {
+  background: #0C1D15; border-top: 1px solid #2C4D3D; border-radius: 10px;
+  padding: 12px 16px; margin-top: 22px;
+}
+.gradio-container .pvf-foot-dark p { color: #B5C2BA; font-size: 0.82rem; margin: 3px 0; }
+.gradio-container .pvf-foot-dark a { color: #D4A72C; text-decoration: none; }
+.gradio-container .pvf-foot-dark a:hover { text-decoration: underline; }

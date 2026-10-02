@@ -3,6 +3,7 @@
 Reads only the prediction bundle in ./predictions, never the model,
 so the Space stays fast and the pipeline can change independently.
 """
+import html
 import json
 import math
 import os
@@ -58,6 +59,12 @@ EXPLAIN_NO_FORECAST = "No forecast is available for this player yet."
 LOW_CONFIDENCE_SHARE = 0.2
 MIN_HISTORY_ROWS = 3
 FLAG = "⚠ "
+FLAG_TITLE = "Low confidence forecast"
+# Cards drawn per page, and how many Load more adds
+PAGE = 24
+# Screen order, so Back always means the screen before this one
+SCREENS = ["home", "search", "results", "player"]
+BACK_TO = {"home": "home", "search": "home", "results": "search", "player": "results"}
 
 # Palette: pitch green, chalk lines, gold for the forecast band
 PITCH, CHALK, INK, GRASS, GOLD, MUTED = "#14402F", "#F2F3EC", "#17201C", "#3E7A5B", "#D4A72C", "#6B7A72"
@@ -173,6 +180,8 @@ PLAYERS = add_derived_columns(clean_labels(PLAYERS), FORECASTS)
 SORTS = sort_labels(PLAYERS, DEFAULT_H)
 FALLING_SHARE = falling_share(PLAYERS, DEFAULT_H)
 HISTORY_BY_ID, FORECASTS_BY_ID, PLAYER_BY_ID = build_lookups(PLAYERS, HISTORY, FORECASTS)
+# Indexed once so drawing a page of cards never scans the frame
+PLAYERS_BY_ID = PLAYERS.set_index("player_id", drop=False)
 # Fixed at startup so a filter never moves what counts as wide
 WIDTH_CUTOFF = width_cutoffs(PLAYERS)
 
@@ -266,9 +275,8 @@ def no_match_message(lo: int, hi: int, active: list[str]) -> str:
     return msg + "."
 
 
-def filter_players(search, leagues, countries, nations, positions, age_min, age_max,
-                   horizon, sort_by, selected_id):
-    """Filter the roster and keep table, ids, count and selection in step."""
+def apply_filters(search, leagues, countries, nations, positions, age_min, age_max):
+    """Filter the roster; same rules as before, now returning rows not a table."""
     df = PLAYERS
     active = []
     query = normalise_name(search)
@@ -285,55 +293,83 @@ def filter_players(search, leagues, countries, nations, positions, age_min, age_
             df = df[df[col].isin(chosen)]
             active.append(label)
     lo, hi = sorted((coerce_age(age_min, AGE_FLOOR), coerce_age(age_max, AGE_CEILING)))
-    df = df[df["age"].between(lo, hi)]
+    return df[df["age"].between(lo, hi)], lo, hi, active
 
-    # Judge the selection against everyone, not the slice on screen
-    matched_ids = set(df["player_id"].tolist())
-    total = len(df)
-    h = horizon_of(horizon)
-    sort_by = sort_by if sort_by in SORTS else DEFAULT_SORT
-    df = sort_rows(df, sort_by, h).head(MAX_ROWS)
 
-    # Formatting happens after sorting, so text never drives the order
-    view = pd.DataFrame({
-        # Search and examples match df["name"], so the prefix never interferes
-        "Player": flag_names(df, h), "Age": df["age"], "Position": df["sub_position"],
-        "Club": df["club_name"], "League": df["league_name"], "Nationality": df["nationality"],
-        "Value": df["current_value_eur"].map(fmt_eur),
-        "Change": df[f"change_{h}"].map(fmt_change),
-        "Likely range": [fmt_range(lo, hi) for lo, hi in zip(df[f"p10_{h}"], df[f"p90_{h}"])],
-    }, columns=COLUMNS)
-    if total:
-        shown = (f" (showing the first {MAX_ROWS}, sorted by {sort_by.lower()})"
-                 if total > MAX_ROWS else "")
-        # Example clicks often leave one match, so get the singular right
-        who = "**1 player** matches" if total == 1 else f"**{total} players** match"
-        count = f"{who} these filters{shown}. Select a row to see the forecast."
-    else:
-        count = no_match_message(lo, hi, active)
+def card_data(row, h: int) -> dict:
+    """Everything one card shows, already formatted the way the table formatted it."""
+    pid = int(row["player_id"])
+    shown = fmt_change(row[f"change_{h}"])
+    # Read the trend off the shown text, so arrow and percent never disagree
+    trend = "flat" if shown in ("n/a", "+0%", "-0%") else ("up" if shown.startswith("+") else "down")
+    return {"pid": pid, "name": row["name"], "pos": row["sub_position"], "age": int(row["age"]),
+            "club": row["club_name"], "value": fmt_eur(row["current_value_eur"]),
+            "arrow": {"up": "▲", "down": "▼", "flat": "■"}[trend], "trend": trend,
+            "change": shown, "range": fmt_range(row[f"p10_{h}"], row[f"p90_{h}"]),
+            "flag": bool(low_confidence_reasons(row[f"width_{h}"], history_count(pid), h))}
 
-    if selected_id is None:
-        chart_out, card_out, sel_out = None, CARD_PROMPT, None
-        explain_out = make_explanation(None, h)
-    elif int(selected_id) in matched_ids:
-        # Chart stays put; card and explanation redraw for the chosen horizon
-        chart_out, card_out, sel_out = gr.skip(), make_card(int(selected_id), h), selected_id
-        explain_out = make_explanation(int(selected_id), h)
-    else:
-        chart_out, card_out, sel_out = None, CARD_GONE, None
-        explain_out = make_explanation(None, h)
-    return view, df["player_id"].tolist(), count, chart_out, card_out, explain_out, sel_out
+
+def card_markup(c: dict) -> str:
+    """One card as a real button, so Tab reaches it and Enter opens it."""
+    e = html.escape
+    flag = f'<span class="pc-flag" title="{FLAG_TITLE}">⚠</span>' if c["flag"] else ""
+    label = f'Open {c["name"]}, {c["value"]}, {c["change"]}'
+    return (f'<button type="button" class="pvf-card" data-pid="{c["pid"]}" '
+            f'aria-label="{e(label)}">'
+            f'<span class="pc-top"><span class="pc-pos">{e(str(c["pos"]))}</span>{flag}</span>'
+            f'<span class="pc-name">{e(str(c["name"]))}</span>'
+            f'<span class="pc-meta">Age {c["age"]} · {e(str(c["club"]))}</span>'
+            f'<span class="pc-value">{c["value"]}</span>'
+            f'<span class="pc-change pc-{c["trend"]}">{c["arrow"]} {c["change"]}</span>'
+            f'<span class="pc-range">Likely {c["range"]}</span></button>')
+
+
+def cards_html(ids: list[int], shown: int, h: int) -> str:
+    """The first `shown` cards of a result list, as one grid."""
+    if not ids:
+        return ""
+    rows = PLAYERS_BY_ID.loc[list(ids[:shown])]
+    body = "".join(card_markup(card_data(row, h)) for _, row in rows.iterrows())
+    return f'<div class="pvf-grid">{body}</div>'
+
+
+def featured_html(h: int) -> str:
+    """The four rule-picked examples as cards, each under its truthful label."""
+    if not EXAMPLES:
+        return ""
+    parts = []
+    for label, pid, _name in EXAMPLES:
+        row = PLAYERS_BY_ID.loc[pid]
+        parts.append(f'<div class="pvf-featured-item"><p class="pvf-featured-label">'
+                     f'{html.escape(label)}</p>{card_markup(card_data(row, h))}</div>')
+    return f'<div class="pvf-featured">{"".join(parts)}</div>'
+
+
+def player_head(pid: int, h: int) -> str:
+    """Name block on the Player screen; data-pid lets a test check the id."""
+    c = card_data(PLAYERS_BY_ID.loc[pid], h)
+    player = PLAYER_BY_ID[pid]
+    e = html.escape
+    flag = f'<span class="pc-flag">⚠ Low confidence</span>' if c["flag"] else ""
+    return (f'<header class="pvf-player-head" data-pid="{pid}">'
+            f'<span class="pc-pos">{e(str(c["pos"]))}</span>{flag}'
+            f'<h2>{e(str(player["name"]))}</h2>'
+            f'<p>Age {c["age"]} · {e(str(c["club"]))} · {e(str(player["league_name"]))}</p>'
+            f'<p class="pvf-big">{c["value"]} <span class="pc-change pc-{c["trend"]}">'
+            f'{c["arrow"]} {c["change"]} in {seasons_text(h)}</span></p></header>')
+
+
+def count_text(total: int, shown: int, sort_by: str) -> str:
+    """How many matched and how many are on screen, in the singular when needed."""
+    who = "**1 player** matches" if total == 1 else f"**{total} players** match"
+    if shown >= total:
+        return f"{who} these filters, sorted by {sort_by.lower()}."
+    return f"{who} these filters. Showing the first **{shown}**, sorted by {sort_by.lower()}."
 
 
 def default_filters() -> list:
     """Starting value for every filter, in the same order as the inputs."""
     return ["", [], [], [], [], AGE_FLOOR, AGE_CEILING, DEFAULT_HORIZON, DEFAULT_SORT]
-
-
-def reset_filters(selected_id):
-    """Clear every filter and refresh the results in one single run."""
-    defaults = default_filters()
-    return (*defaults, *filter_players(*defaults, selected_id))
 
 
 def open_player(pid, horizon=DEFAULT_HORIZON):
@@ -355,14 +391,6 @@ def featured_player_id(players):
         return None
     return int(ranked.sort_values(["current_value_eur", "player_id"],
                                   ascending=[False, True])["player_id"].iloc[0])
-
-
-def initial_view():
-    """Page load: default table with the featured player already open."""
-    view, ids, count, *_ = filter_players(*default_filters(), None)
-    if FEATURED_ID is None:
-        return view, ids, count, None, CARD_PROMPT, make_explanation(None), None
-    return (view, ids, count, *open_player(FEATURED_ID))
 
 
 MIN_EXAMPLE_VALUE = 1e6
@@ -410,15 +438,6 @@ def pick_examples(players) -> list[tuple[str, int, str]]:
         picks.append((text, int(best["player_id"]), best["name"]))
         taken.add(int(best["player_id"]))
     return picks
-
-
-def open_example(name, player_id):
-    """Example click: search that name, reset the rest, open that exact id."""
-    values = default_filters()
-    values[0] = name or ""
-    view, ids, count, *_ = filter_players(*values, None)
-    # Names can repeat, so the hidden id decides which player opens
-    return (*values, view, ids, count, *open_player(player_id))
 
 
 FEATURED_ID = featured_player_id(PLAYERS)
@@ -679,28 +698,162 @@ def make_footer(manifest: dict) -> str:
     )
 
 
-def on_select(ids: list[int], horizon: str, evt: gr.SelectData):
-    """Row click handler; evt.index is [row, col] in the visible table."""
-    row = evt.index[0] if evt is not None and evt.index else None
-    # Table, ids and count are skipped so every event shares one output list
-    keep = (gr.skip(), gr.skip(), gr.skip())
-    # A click can land after the table shrank underneath the user
-    if not ids or row is None or not 0 <= row < len(ids):
-        return (*keep, None, CARD_STALE, make_explanation(None), None)
-    return (*keep, *open_player(ids[row], horizon))
+# Screen callbacks. Each returns the four screen columns plus the screen name, so
+# every path through the app writes the same navigation outputs.
+
+def show(name: str) -> list:
+    """Visibility updates for the four screens, plus the name to remember."""
+    return [gr.Column(visible=n == name) for n in SCREENS] + [name]
+
+
+def go_back(current: str) -> list:
+    return show(BACK_TO.get(current, "home"))
+
+
+def run_search(search, leagues, countries, nations, positions, age_min, age_max,
+               horizon, sort_by):
+    """SEARCH: filter, sort, draw the first page of cards, open the Results screen."""
+    df, lo, hi, active = apply_filters(search, leagues, countries, nations, positions,
+                                       age_min, age_max)
+    h = horizon_of(horizon)
+    sort_by = sort_by if sort_by in SORTS else DEFAULT_SORT
+    ids = sort_rows(df, sort_by, h)["player_id"].tolist()
+    total = len(ids)
+    shown = min(PAGE, total)
+    count = count_text(total, shown, sort_by) if total else no_match_message(lo, hi, active)
+    return [*show("results"), cards_html(ids, shown, h), count, ids, shown,
+            gr.Button(visible=total > shown)]
+
+
+def load_more(ids, shown, horizon, sort_by):
+    """Add one more page of cards without refiltering or leaving the screen."""
+    h = horizon_of(horizon)
+    total = len(ids)
+    shown = min(shown + PAGE, total)
+    sort_by = sort_by if sort_by in SORTS else DEFAULT_SORT
+    return (cards_html(ids, shown, h), count_text(total, shown, sort_by), shown,
+            gr.Button(visible=total > shown))
+
+
+# Four screen columns, the screen name, then head, chart, card, explanation and id
+PLAYER_OUTPUTS = len(SCREENS) + 6
+
+
+def open_player_screen(pid, horizon):
+    """Everything the Player screen shows, or no change when the id is unknown."""
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return [gr.skip()] * PLAYER_OUTPUTS
+    if pid not in PLAYER_BY_ID:
+        return [gr.skip()] * PLAYER_OUTPUTS
+    h = horizon_of(horizon)
+    return [*show("player"), player_head(pid, h), make_chart(pid), make_card(pid, h),
+            make_explanation(pid, h), pid]
+
+
+def open_from_cards(horizon, evt: gr.EventData):
+    """A card click arrives as trigger('click', {pid}) from the browser."""
+    return open_player_screen(getattr(evt, "pid", None), horizon)
+
+
+def clear_filters():
+    """Reset every filter tile to its starting value."""
+    return default_filters()
+
+
+def toggle(open_now: bool):
+    """Flip a disclosure panel and report its new state."""
+    return gr.Column(visible=not open_now), not open_now
+
+
+# One delegated listener survives every re-render of the card grid
+CARD_JS = """
+element.addEventListener('click', (e) => {
+  const card = e.target.closest('[data-pid]');
+  if (card) trigger('click', {pid: Number(card.dataset.pid)});
+});
+"""
+
+# Night palette: near black, pitch green and gold, shared by the theme and the sheet
+NIGHT_BG, PANEL, PANEL_2, LINE = "#05100A", "#0C1D15", "#12291E", "#2C4D3D"
+TEXT, TEXT_DIM, ACCENT = "#F2F3EC", "#B5C2BA", "#D4A72C"
+
+
+def both(**tokens) -> dict:
+    """Set each token for light and dark alike, so the page is always night."""
+    return {**tokens, **{f"{k}_dark": v for k, v in tokens.items()}}
 
 
 THEME = gr.themes.Base(
     primary_hue=gr.themes.colors.green, neutral_hue=gr.themes.colors.stone,
-    font=[gr.themes.GoogleFont("Source Sans 3"), "system-ui", "sans-serif"],
-).set(body_background_fill=CHALK, block_background_fill="#FFFFFF",
-      button_primary_background_fill=PITCH, button_primary_text_color=CHALK,
-      # Stone 400 defaults reach only 2.5:1 on white; stone 600 passes 4.5:1
-      block_info_text_color=SUBDUED, body_text_color_subdued=SUBDUED,
-      block_label_text_color=SUBDUED,
-      # Placeholders need 4.5:1 on the input fill in both themes too
-      input_placeholder_color="#6A645F", input_placeholder_color_dark="#BAB4AE")
-CSS = (Path(__file__).parent / "style.css").read_text(encoding="utf-8")
+    font=[gr.themes.GoogleFont("Barlow Condensed"), "system-ui", "sans-serif"],
+    radius_size=gr.themes.sizes.radius_sm,
+).set(**both(
+    body_background_fill="transparent", body_text_color=TEXT, body_text_color_subdued=TEXT_DIM,
+    background_fill_primary=PANEL, background_fill_secondary=PANEL_2,
+    block_background_fill=PANEL, block_border_color=LINE, border_color_primary=LINE,
+    block_label_text_color=TEXT_DIM, block_title_text_color=TEXT, block_info_text_color=TEXT_DIM,
+    input_background_fill="#081710", input_border_color=LINE, input_placeholder_color="#93A39A",
+    button_primary_background_fill=ACCENT, button_primary_background_fill_hover="#E6BD4A",
+    button_primary_text_color="#0A140E", button_primary_border_color=ACCENT,
+    button_secondary_background_fill=PANEL_2, button_secondary_background_fill_hover="#1A3A2A",
+    button_secondary_text_color=TEXT, button_secondary_border_color=LINE,
+    checkbox_label_background_fill=PANEL_2, checkbox_label_background_fill_selected="#1E4A33",
+    checkbox_label_text_color=TEXT, checkbox_label_text_color_selected=TEXT,
+    color_accent_soft="#1E4A33", slider_color=ACCENT,
+))
+
+SHEET = (Path(__file__).parent / "style.css").read_text(encoding="utf-8")
+# Rules below this marker style html and body, which css= would scope under .contain
+PAGE_MARKER = "/* PAGE LEVEL RULES */"
+COMPONENT_CSS, PAGE_CSS = SHEET.split(PAGE_MARKER)
+
+# Runs in the browser after every screen change, with no server round trip
+AFTER_NAV_JS = "() => { if (window.pvfAfterNav) window.pvfAfterNav(); }"
+
+# Browser Back walks the screens, and each screen keeps its scroll position
+HISTORY_JS = """
+<script>
+(() => {
+  const scrolls = {};
+  let goingBack = false;
+  const current = () => {
+    const el = [...document.querySelectorAll('.pvf-screen')].find(e => e.offsetParent !== null);
+    return el ? [...el.classList].find(c => c.startsWith('pvf-') && c !== 'pvf-screen') : null;
+  };
+  document.addEventListener('click', (e) => {
+    const s = current();
+    if (s) scrolls[s] = scrollY;
+    if (e.target.closest('.pvf-back')) goingBack = true;
+  }, true);
+  window.addEventListener('popstate', () => { goingBack = true; });
+  window.pvfAfterNav = () => {
+    const y = goingBack ? (scrolls[current()] || 0) : 0;
+    goingBack = false;
+    // Wait a frame so the new screen has laid out before scrolling
+    requestAnimationFrame(() => window.scrollTo(0, y));
+  };
+  if (new URLSearchParams(location.search).has('nohist')) return;
+  let depth = 0;
+  const FWD = '.pvf-fwd, button.pvf-card';
+  document.addEventListener('click', (e) => {
+    const back = e.target.closest('.pvf-back');
+    // Capture phase runs first, so in app Back becomes a real history step
+    if (back && depth > 0) { e.stopPropagation(); e.preventDefault(); history.back(); return; }
+    if (e.target.closest(FWD)) { depth += 1; history.pushState({pvf: depth}, ''); }
+  }, true);
+  window.addEventListener('popstate', (e) => {
+    const target = (e.state && e.state.pvf) || 0;
+    if (target >= depth) { depth = target; return; }
+    depth = target;
+    const pop = document.querySelector('button.pvf-pop, .pvf-pop button');
+    if (pop) pop.click();
+  });
+})();
+</script>
+"""
+HEAD = f"<style>{PAGE_CSS}</style>{HISTORY_JS}"
 
 APP_TITLE = "Player Value Forecaster"
 LOOK_AHEAD_INFO = "How many seasons ahead the forecast looks"
@@ -709,7 +862,7 @@ HORIZON_SPAN = (seasons_text(max(HORIZONS.values())) if len(HORIZONS) == 1 else
                 f"one to {max(HORIZONS.values())} seasons")
 # "over the next ..." reads better with a bare noun than with "1 season"
 HEAD_SPAN = "season" if list(HORIZONS.values()) == [1] else HORIZON_SPAN
-OPTIMISM_NOTE = optimism_note(PLAYERS, horizon_of(DEFAULT_HORIZON))
+OPTIMISM_NOTE = optimism_note(PLAYERS, DEFAULT_H)
 HOW_IT_WORKS = (
     f"Each forecast predicts the change in value {HORIZON_SPAN} after the "
     "1 July snapshot, from the player's age, position, current value and how that value "
@@ -723,104 +876,140 @@ HOW_IT_WORKS = (
     "why the forecasts lean upward; the model cannot see injuries, transfers or contract "
     "news after the snapshot; and players much older or cheaper than the training set are "
     "extrapolations.")
-SORT_INFO = "Order the table by value, predicted change or how uncertain the forecast is"
+SORT_INFO = "Order the cards by value, predicted change or how uncertain the forecast is"
 # Naming the share stops the fall sort implying falls are common here
 if 0 < FALLING_SHARE < 0.1:
     SORT_INFO += f". Only {FALLING_SHARE:.0%} of players are predicted to fall"
 TABLE_NOTE = ("⚠ low-confidence forecast. Likely range: where the model aims for the real "
               "value to land 8 times out of 10.")
 
+APP_TITLE_TEXT = "Player value forecaster"
+TAGLINE = f"Where a player’s market value is heading over the next {HEAD_SPAN}."
+LEAN_SHORT = "Forecasts lean optimistic"
+
 with gr.Blocks(title=APP_TITLE) as demo:
+    screen = gr.State("home")
     ids_state = gr.State([])
+    shown_state = gr.State(0)
     selected_state = gr.State(None)
+    why_open = gr.State(False)
+    how_open = gr.State(False)
 
-    gr.HTML(f"""
-      <header class="pvf-head">
-        <h1>Player value forecaster</h1>
-        <p>Pick a football player to see where their Transfermarkt value is likely heading
-        over the next {HEAD_SPAN}.</p>
-      </header>""")
-    if MANIFEST.get("is_mock"):
-        gr.HTML('<div class="pvf-mock">Demo data: these players and forecasts are invented '
-                'while the models are being trained.</div>')
-    elif OPTIMISM_NOTE:
-        gr.HTML(f'<div class="pvf-mock">{OPTIMISM_NOTE}</div>')
+    # One id to scope every rule; an id outranks Gradio's own class rules
+    with gr.Column(elem_id="pvf"):
 
-    # Results are built first so the examples can target them, placed below
-    horizon = gr.Radio(list(HORIZONS), value=DEFAULT_HORIZON, label="Look ahead",
-                       info=LOOK_AHEAD_INFO, render=False, visible=len(HORIZONS) > 1)
-    sort_by = gr.Dropdown(list(SORTS), value=DEFAULT_SORT, label="Sort by", info=SORT_INFO,
-                          render=False)
-    count = gr.Markdown(render=False)
-    # Pinning keeps the name in view while the table scrolls sideways on phones
-    table = gr.Dataframe(interactive=False, max_height=340, wrap=True, elem_classes="pvf-table",
-                         column_widths=["13%", "5%", "12%", "14%", "11%", "12%", "8%", "9%", "16%"],
-                         pinned_columns=1, render=False)
-    chart = gr.Plot(show_label=False, elem_classes="pvf-chart", render=False)
-    card = gr.Markdown(CARD_PROMPT, elem_classes="pvf-card", render=False)
-    explain = gr.Markdown(make_explanation(None), elem_classes="pvf-explain", render=False)
-    results = [table, ids_state, count, chart, card, explain, selected_state]
+        with gr.Column(visible=True, elem_classes=["pvf-screen", "pvf-home"]) as home_screen:
+            gr.HTML(f'<header class="pvf-hero"><p class="pvf-kicker">Transfermarkt forecasts'
+                    f'</p><h1>{APP_TITLE_TEXT}</h1>'
+                    f'<p class="pvf-tagline">{TAGLINE}</p></header>')
+            if MANIFEST.get("is_mock"):
+                gr.HTML('<p class="pvf-note-line">Demo data: these players and forecasts are '
+                        'invented while the models are being trained.</p>')
+            elif OPTIMISM_NOTE:
+                with gr.Row(elem_classes="pvf-lean"):
+                    gr.HTML(f'<p class="pvf-note-line">{LEAN_SHORT}</p>')
+                    why_btn = gr.Button("Why?", size="sm", scale=0, min_width=90,
+                                        elem_classes="pvf-why")
+                with gr.Column(visible=False, elem_classes="pvf-why-panel") as why_panel:
+                    gr.Markdown(OPTIMISM_NOTE)
+            with gr.Row(elem_classes="pvf-actions"):
+                start_btn = gr.Button("Search players", variant="primary", size="lg",
+                                      elem_classes=["pvf-big-btn", "pvf-start", "pvf-fwd"])
+                how_btn = gr.Button("How it works", size="lg",
+                                    elem_classes=["pvf-big-btn", "pvf-how-btn"])
+            with gr.Column(visible=False, elem_classes="pvf-how") as how_panel:
+                gr.Markdown(HOW_IT_WORKS)
+            gr.HTML('<h2 class="pvf-h2">Featured</h2>')
+            featured = gr.HTML(featured_html(DEFAULT_H), js_on_load=CARD_JS,
+                               elem_classes="pvf-featured-wrap")
 
-    with gr.Row(equal_height=False, elem_classes="pvf-main"):
-        with gr.Column(scale=1, min_width=260, elem_classes="pvf-filters"):
-            search = gr.Textbox(label="Search player", placeholder="Type part of a name",
-                                max_lines=1)
-            # Secondary filters start folded so search and results lead the page
-            with gr.Accordion("More filters", open=False, elem_classes="pvf-more"):
+        with gr.Column(visible=False, elem_classes=["pvf-screen", "pvf-search"]) as search_screen:
+            with gr.Row(elem_classes="pvf-bar"):
+                back_search = gr.Button("Back", size="lg", scale=0, min_width=110,
+                                        elem_classes=["pvf-big-btn", "pvf-back"])
+                gr.HTML('<h2 class="pvf-h2">Search</h2>')
+            with gr.Column(elem_classes="pvf-tile"):
                 position = gr.CheckboxGroup(options("position"), label="Position")
-                league = gr.Dropdown(options("league_name"), multiselect=True, label="League")
-                country = gr.Dropdown(options("league_country"), multiselect=True,
-                                      label="League country")
-                nation = gr.Dropdown(options("nationality"), multiselect=True, label="Nationality")
+            with gr.Row(elem_classes="pvf-tile-row"):
+                with gr.Column(elem_classes="pvf-tile"):
+                    league = gr.Dropdown(options("league_name"), multiselect=True, label="League")
+                with gr.Column(elem_classes="pvf-tile"):
+                    nation = gr.Dropdown(options("nationality"), multiselect=True, label="Nation")
+            with gr.Row(elem_classes="pvf-tile-row"):
+                with gr.Column(elem_classes="pvf-tile"):
+                    country = gr.Dropdown(options("league_country"), multiselect=True,
+                                          label="League country")
+                with gr.Column(elem_classes="pvf-tile"):
+                    search_box = gr.Textbox(label="Search by name", max_lines=1,
+                                            placeholder="Type part of a name")
+            with gr.Row(elem_classes=["pvf-tile", "pvf-age"]):
                 age_min = gr.Slider(AGE_FLOOR, AGE_CEILING, value=AGE_FLOOR, step=1,
-                                    label="Youngest age")
+                                    label="Age from", min_width=120)
                 age_max = gr.Slider(AGE_FLOOR, AGE_CEILING, value=AGE_CEILING, step=1,
-                                    label="Oldest age")
-            reset = gr.Button("Clear filters", variant="secondary")
-            filters = [search, league, country, nation, position, age_min, age_max, horizon, sort_by]
+                                    label="Age to", min_width=120)
+            # Hidden while the bundle has one horizon, back automatically when it has more
+            horizon = gr.Radio(list(HORIZONS), value=DEFAULT_HORIZON, label="Look ahead",
+                               info=LOOK_AHEAD_INFO, visible=len(HORIZONS) > 1,
+                               elem_classes="pvf-tile")
+            with gr.Row(elem_classes="pvf-actions"):
+                clear_btn = gr.Button("Clear", size="lg", scale=0, min_width=140,
+                                      elem_classes=["pvf-big-btn", "pvf-clear"])
+                go_btn = gr.Button("Search", variant="primary", size="lg",
+                                   elem_classes=["pvf-big-btn", "pvf-go", "pvf-fwd"])
 
-            # Carries the example's player id, since names alone can repeat
-            example_id = gr.Number(visible=False, precision=0)
-            if EXAMPLES:
-                # cache_examples=False matters: Spaces would otherwise cache and skip fn
-                gr.Examples([[name, pid] for _label, pid, name in EXAMPLES],
-                            inputs=[search, example_id], outputs=filters + results,
-                            fn=open_example, run_on_click=True, cache_examples=False,
-                            example_labels=[label for label, _pid, _name in EXAMPLES],
-                            label="Try an example", api_name="open_example")
+        with gr.Column(visible=False,
+                       elem_classes=["pvf-screen", "pvf-results"]) as results_screen:
+            with gr.Row(elem_classes="pvf-bar"):
+                back_results = gr.Button("Back", size="lg", scale=0, min_width=110,
+                                         elem_classes=["pvf-big-btn", "pvf-back"])
+                gr.HTML('<h2 class="pvf-h2">Results</h2>')
+            sort_by = gr.Radio(list(SORTS), value=DEFAULT_SORT, label="Sort by", info=SORT_INFO,
+                               elem_classes="pvf-chips")
+            count = gr.Markdown(elem_classes="pvf-count")
+            cards = gr.HTML(js_on_load=CARD_JS, elem_classes="pvf-cards")
+            more_btn = gr.Button("Load more", size="lg", visible=False,
+                                 elem_classes=["pvf-big-btn", "pvf-more"])
+            gr.Markdown(TABLE_NOTE, elem_classes="pvf-note")
 
-        with gr.Column(scale=3, elem_classes="pvf-side"):
-            with gr.Row(equal_height=True, elem_classes="pvf-view"):
-                horizon.render()
-                sort_by.render()
-            # Results and detail are siblings so phone CSS can swap their order
-            with gr.Column(elem_classes="pvf-results"):
-                count.render()
-                table.render()
-                gr.Markdown(TABLE_NOTE, elem_classes="pvf-note")
+        with gr.Column(visible=False, elem_classes=["pvf-screen", "pvf-player"]) as player_screen:
+            with gr.Row(elem_classes="pvf-bar"):
+                back_player = gr.Button("Back", size="lg", scale=0, min_width=110,
+                                        elem_classes=["pvf-big-btn", "pvf-back"])
+            head_html = gr.HTML(elem_classes="pvf-head-wrap")
             with gr.Row(equal_height=False, elem_classes="pvf-detail"):
-                # Explanation sits directly under the chart it describes
                 with gr.Column(scale=3):
-                    chart.render()
-                    explain.render()
-                with gr.Column(scale=2, min_width=320):
-                    card.render()
+                    chart = gr.Plot(show_label=False, elem_classes="pvf-chart")
+                    explain = gr.Markdown(make_explanation(None), elem_classes="pvf-explain")
+                with gr.Column(scale=2, min_width=300):
+                    card = gr.Markdown(CARD_PROMPT, elem_classes="pvf-card-panel")
 
-    with gr.Accordion("How the forecast works", open=False, elem_classes="pvf-how"):
-        gr.Markdown(HOW_IT_WORKS)
+    # Hidden target the browser Back hook clicks after popstate
+    pop = gr.Button("pop", elem_classes="pvf-pop")
+    gr.HTML(make_footer(MANIFEST), elem_classes=["pvf-foot", "pvf-foot-dark"])
 
-    # Footer sits outside every container so it stays visible at all times
-    gr.HTML(make_footer(MANIFEST), elem_classes="pvf-foot")
+    filters = [search_box, league, country, nation, position, age_min, age_max, horizon, sort_by]
+    nav_out = [home_screen, search_screen, results_screen, player_screen, screen]
+    search_out = nav_out + [cards, count, ids_state, shown_state, more_btn]
+    player_out = nav_out + [head_html, chart, card, explain, selected_state]
 
-    # .input fires on user edits only, so code-set values never refilter
-    gr.on(triggers=[comp.input for comp in filters],
-          fn=filter_players, inputs=filters + [selected_state], outputs=results,
-          trigger_mode="always_last", api_name="filter_players")
-    # First paint opens the featured player instead of an empty chart
-    demo.load(initial_view, None, results, api_name="initial_view")
-    table.select(on_select, [ids_state, horizon], results, api_name="select_player")
-    # One run sets every filter and its results together, no cascade
-    reset.click(reset_filters, selected_state, filters + results, api_name="reset_filters")
+    start_btn.click(lambda: show("search"), None, nav_out).then(None, js=AFTER_NAV_JS)
+    go_btn.click(run_search, filters, search_out, api_name="run_search").then(None, js=AFTER_NAV_JS)
+    search_box.submit(run_search, filters, search_out).then(None, js=AFTER_NAV_JS)
+    # Re-sorting reruns the search, so the chips and the filters cannot disagree
+    sort_by.input(run_search, filters, search_out,
+                  api_name="sort_results").then(None, js=AFTER_NAV_JS)
+    more_btn.click(load_more, [ids_state, shown_state, horizon, sort_by],
+                   [cards, count, shown_state, more_btn], api_name="load_more")
+    cards.click(open_from_cards, [horizon], player_out,
+                api_name="open_player").then(None, js=AFTER_NAV_JS)
+    featured.click(open_from_cards, [horizon], player_out,
+                   api_name="open_featured").then(None, js=AFTER_NAV_JS)
+    clear_btn.click(clear_filters, None, filters, api_name="clear_filters")
+    if OPTIMISM_NOTE:
+        why_btn.click(toggle, why_open, [why_panel, why_open])
+    how_btn.click(toggle, how_open, [how_panel, how_open])
+    for btn in (back_search, back_results, back_player, pop):
+        btn.click(go_back, screen, nav_out).then(None, js=AFTER_NAV_JS)
 
 if __name__ == "__main__":
-    demo.launch(theme=THEME, css=CSS)
+    demo.launch(theme=THEME, css=COMPONENT_CSS, head=HEAD)
