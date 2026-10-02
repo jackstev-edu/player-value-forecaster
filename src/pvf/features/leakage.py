@@ -78,4 +78,10 @@ FEATURE_SOURCES = {
         "transfer_history": ["player_id", "transfer_date", "transfer_type",
                              "transfer_fee"],
     },
+    # Contract samples: the sheet's own dates, plus the panel columns in PANEL_FEATURES,
+    # which are already declared under the slots above
+    "samples": {
+        "player_valuations": ["player_id", "date", "market_value_in_eur"],
+        "players": ["player_id", "date_of_birth", "position"],
+    },
 }

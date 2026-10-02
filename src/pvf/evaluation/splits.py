@@ -1,26 +1,22 @@
-"""Time-based splits. Never random: a training target must resolve before the test anchor."""
+"""Player-grouped cross-validation for the 500-player contract dataset.
+
+A time split no longer fits: 194 of the 500 hand-collected rows are 2023/24. Instead every
+player sits wholly on one side of each fold, so a model is never scored on a player it
+trained on, and only hand-collected rows are scored. Augmented rows of the training
+players are added to training only, which keeps them out of every reported number.
+"""
+import numpy as np
 import pandas as pd
 
 
-def time_split(panel: pd.DataFrame, horizon: int, train_last_season: int, val_season: int,
-               test_season: int, date_col: str = "anchor_date") -> dict[str, pd.DataFrame]:
-    """Return train/val/test frames for one horizon with no target overlap."""
-    season = panel[date_col].dt.year
-    test_start = pd.Timestamp(year=test_season, month=panel[date_col].dt.month.iloc[0],
-                              day=panel[date_col].dt.day.iloc[0])
-    target_date = panel[date_col] + pd.DateOffset(years=horizon)
-    # Purge rows whose target resolves after the test anchor
-    resolved = target_date <= test_start
-    has_y = panel[f"y_h{horizon}"].notna()
-
-    train = panel[(season <= train_last_season) & resolved & has_y]
-    val = panel[(season == val_season) & resolved & has_y]
-    test = panel[(season == test_season) & has_y]
-    return {"train": train, "val": val, "test": test}
-
-
-def rolling_origins(test_seasons: list[int], horizon: int, values_until: str) -> list[int]:
-    """Keep only test seasons whose horizon target is observable in the data."""
-    last_year = pd.Timestamp(values_until).year
-    # Anchor year plus horizon must not pass the last valuation year
-    return [s for s in test_seasons if s + horizon <= last_year]
+def player_folds(samples: pd.DataFrame, n_splits: int = 5,
+                 seed: int = 42) -> list[tuple[np.ndarray, np.ndarray]]:
+    """(train_index, test_index) pairs of row labels; test holds manual rows only."""
+    players = samples["player_id"].unique()
+    # Shuffle players with the seed, then deal them into folds
+    order = np.random.default_rng(seed).permutation(len(players))
+    fold_of = pd.Series(order % n_splits, index=players)
+    folds = samples["player_id"].map(fold_of).to_numpy()
+    manual = (samples["origin"] == "manual").to_numpy()
+    idx = samples.index.to_numpy()
+    return [(idx[folds != k], idx[(folds == k) & manual]) for k in range(n_splits)]

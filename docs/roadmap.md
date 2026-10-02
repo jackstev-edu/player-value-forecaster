@@ -5,7 +5,24 @@ What we are building, in the order we will build it. Agreed 2026-09-19.
 Status values: `todo`, `wip`, `done`, `blocked`. Update the status column as work lands —
 this file is the shared plan, `docs/decisions.md` is the record of why.
 
-**The critical path is tasks 6 → 10 → 15.** Task 6 gates every context feature, task 10 is the
+> **Scope change, 2026-09-27.** The 500 hand-collected contracts (task 19) are now the dataset,
+> augmented to 1,000 samples. The Kaggle panel of phases 1–2 now only supplies 42 joined
+> features (#43). See `docs/scope_change.md` and decisions #36–#44. Phases 1–2 below are kept as history. The
+> **new critical path is tasks 23 → 13 → 14 → 15**, run on `data/processed/samples.parquet`.
+> Tasks 23 to 25 are done; task 26 (decision #50) is the open one, since the upward bias is the
+> report's main limitation and the only finding a reader will challenge.
+>
+> | # | Task | Owner | Status | Notes |
+> | --- | --- | --- | --- | --- |
+> | 23 | Build the 1,000-sample dataset | Yunus | done | `scripts/build_dataset.py`: 500 manual + 500 contract-span rows, 49 features (7 sample + 42 panel). Every manual row modelled (#44). |
+> | 24 | Clean the contract sheet | Yunus, Jack | wip | Errors all fixed (dates filled; 4 wrong contracts corrected, Jack to confirm Noa Lang). Left: 247 non-URL sources, a warning only. |
+> | 25 | GUI to the new scope | Jack | done | Horizons, sort labels and example labels now follow the loaded bundle, so the 2- and 3-season options disappear on their own. The bias of #48 is stated on the page, recomputed from the bundle rather than copied from `manifest.notes`. `tests/test_app_smoke.py` runs every callback against the shipped bundle. |
+> | 26 | **Second cohort to correct the upward bias** | | todo | Decision #50. Build the top 500 by value as of 1 Jul 2021 from `player_valuations`, follow forward, train alongside the existing 500. Measure a panel-trained core model first as the baseline: if that fixes the lean, skip the cohort. No hand collection needed (#47). |
+>
+> Tasks 13–15 still apply, with player-grouped folds instead of the season split (#41) and
+> the ablation reframed as "does contract length beat age plus current value?".
+
+**The critical path was tasks 6 → 10 → 15.** Task 6 gates every context feature, task 10 is the
 project's actual thesis, and task 15 is the result the report is built on. Everything else can
 move around those three.
 
@@ -44,23 +61,24 @@ Jack left numbered slots in `src/pvf/features/build_panel.py`; these fill them i
 
 | # | Task | Owner | Status | Notes |
 | --- | --- | --- | --- | --- |
-| 13 | Baselines | | todo | No change, and the age × position curve. The model has to beat these or there is no story. |
-| 14 | LightGBM per horizon, plus quantile models | | todo | One model per horizon (1, 2, 3). Quantiles 10/50/90 give the GUI a range. |
-| 15 | **Time-split backtest and ablation** | | todo | Remove context, performance and injuries one group at a time. This answers "does context beat age plus current value?" — the headline result. |
+| 13 | Baselines | Yunus | done | No change, age × position curve, and a ridge linear baseline (#46). All beaten by or tied with LightGBM; linear ties it (0.602 vs 0.615 log MAE). |
+| 14 | LightGBM per horizon, plus quantile models | Yunus | done | h = 1 only (#39). Quantiles 10/50/90, band calibrated by CQR to 79–81% coverage (#46). |
+| 15 | **Time-split backtest and ablation** | Yunus | done | Ablation under player-grouped CV (#47): no group beyond age, position and value helps. Plus a walk-forward backtest on five named players (#49). |
 
 ## Phase 4 — delivery
 
 | # | Task | Owner | Status | Notes |
 | --- | --- | --- | --- | --- |
-| 16 | Export the prediction bundle | | todo | To the schema already defined in `src/pvf/export/schema.py`. The app reads it unchanged. |
-| 17 | Report | | todo | Framed around the task 15 ablation. |
+| 16 | Export the prediction bundle | Yunus | done | `scripts/export_bundle.py`: 4,727 players, core model, `lgbm-core-v1` (#48). Known upward bias stated in the manifest. |
+| 17 | Report | | todo | Framed around the task 15 ablation (#47), with the backtest figure (#49) and the bias of #48 as limitations. |
+| 27 | Bring the live Space back up | Jack | blocked | Bundle and app are deployed and verified byte-for-byte on `jackstev/player-value-forecaster`, but the Space will not start: `cpu-basic` quota is `limit=0` on the free account and all six of Jack's Spaces are already paused, so there is nothing to free. Needs a Space deleted, the quota period to reset, or PRO. |
 
 ## Running alongside
 
 | # | Task | Owner | Status | Notes |
 | --- | --- | --- | --- | --- |
 | 18 | Sofascore ratings experiment | Yunus | todo | Download the Kaggle set, join on name + birth year to the top-5 subset, ablate. The result decides whether we invest in the full scrape (decision #8). |
-| 19 | **Manual dataset, 500+ rows** | | todo | **Rubric requirement and currently blocking.** The only task here with no dependencies, so it can start immediately. Candidates in `docs/decisions.md`; the human-baseline-forecast option is strongest because it doubles as a benchmark for the report. |
+| 19 | **Manual dataset, 500+ rows** | Yunus, Jack | done | Contract start/end for the top 500 players, filled 2026-09-27, now the core dataset (#36). Original note: **Rubric requirement and currently blocking.** The only task here with no dependencies, so it can start immediately. Candidates in `docs/decisions.md`; the human-baseline-forecast option is strongest because it doubles as a benchmark for the report. |
 | 20 | Confirm the second model family | | todo | `chronos` is proposed in the config. Check it against the rubric. |
 | 21 | Deadline, deliverables, rubric questions | | todo | Parked 2026-09-19. The 500-vs-1000 sample discrepancy needs an instructor answer. |
 | 22 | Positional rank, the rest of slot 4 | Yunus | done | Rank, peer count and percentile against same-position players at the player's club and in his league, per anchor (#22). Uncovered a fourth silent trap: `players.position` uses the string "Missing" rather than null, which was producing rank-1-of-1 groups (#23). |

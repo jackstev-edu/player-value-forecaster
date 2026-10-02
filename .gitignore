@@ -2,6 +2,10 @@
 data/raw/
 data/interim/
 data/processed/
+# Manual and synthetic data live on the Drive too (public repo); only their READMEs are tracked
+data/manual/*.csv
+data/manual/*.xlsx
+data/synthetic/*.csv
 
 # Python
 __pycache__/

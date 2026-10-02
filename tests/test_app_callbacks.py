@@ -1,5 +1,6 @@
 """Callback level tests for the Gradio app, run without launching it."""
 import importlib.util
+import re
 from pathlib import Path
 
 import gradio as gr
@@ -8,6 +9,8 @@ import plotly.graph_objects as go
 import pytest
 
 APP_PATH = Path(__file__).resolve().parents[1] / "app" / "app.py"
+# Invented players with known names and all three horizons; the real bundle changes each export
+MOCK_BUNDLE = Path(__file__).resolve().parent / "fixtures" / "mock_bundle"
 
 # A nationality the bundle cannot contain, so these filters match nobody
 ABSENT_NATION = "Nowhereland"
@@ -18,7 +21,10 @@ def app():
     """Import app.py by path so the Space folder stays self-contained."""
     spec = importlib.util.spec_from_file_location("pvf_app_under_test", APP_PATH)
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    # The bundle is read at import, so the override only has to hold while it runs
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("PVF_BUNDLE_DIR", str(MOCK_BUNDLE))
+        spec.loader.exec_module(module)
     return module
 
 
@@ -180,6 +186,20 @@ def test_fmt_eur_formats_and_handles_missing(app):
     assert app.fmt_eur(750_000) == "€750k"
     assert app.fmt_eur(float("nan")) == "unknown"
     assert app.fmt_eur(None) == "unknown"
+
+
+def test_readme_and_footer_credit_the_same_sources(app):
+    """The Space page and the in-app footer must name the same datasets."""
+    readme = (Path(__file__).resolve().parents[1] / "app" / "README.md").read_text(encoding="utf-8")
+    footer = app.make_footer(app.MANIFEST)
+    # Match the Kaggle dataset slug wherever it appears, in markdown or in href
+    slugs = lambda text: set(re.findall(r"kaggle\.com/datasets/[\w-]+/([\w-]+)", text))
+    assert slugs(footer), "the footer credits no Kaggle dataset at all"
+    assert slugs(readme) == slugs(footer), (
+        f"README credits {sorted(slugs(readme))}, footer credits {sorted(slugs(footer))}")
+    for author in ("davidcariboo", "salimt"):
+        if author in footer:
+            assert author in readme, f"{author} is credited in the footer but not the README"
 
 
 def test_footer_falls_back_when_manifest_is_empty(app):
@@ -510,14 +530,19 @@ def test_change_and_limits_fall_back_without_dates(app):
     assert app.fmt_day(pd.NaT) is None and app.fmt_day(pd.Timestamp("2026-07-01")) == "1 Jul 2026"
 
 
-def test_how_it_works_makes_no_backtest_claim(app):
+def test_how_it_works_states_its_limits(app):
+    """A real model now ships, so the text must name its weaknesses, not just its scores."""
     how = accordion(app, "How the forecast works")
     text = " ".join(c.value for c in descendants(how) if isinstance(c, gr.Markdown))
-    assert "backtest" not in text.lower()
-    assert ("The model will be tested on past seasons it never saw. Results will appear here "
-            "once the real model is in.") in text
-    # The rest of the explanation is kept
+    # The old placeholder promised results that have since arrived
+    assert "Results will appear here" not in text
     assert "8 times out of 10" in text
+    # Every honest limit from decisions #48 and #49 has to survive an edit
+    lowered = text.lower()
+    assert "lean upward" in lowered, "the upward bias must stay stated"
+    assert "cannot see injuries" in lowered
+    assert "extrapolation" in lowered
+    assert "cross-validation" in lowered
 
 
 def test_explanation_describes_how_the_range_widens(app):

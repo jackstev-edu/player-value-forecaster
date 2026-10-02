@@ -3,9 +3,11 @@ pandas>=2.2
 pyarrow>=15
 numpy>=1.26
 pyyaml>=6
+openpyxl>=3.1           # reads the contract sheet from the Drive
 scikit-learn>=1.4
-lightgbm>=4.3
+lightgbm>=4.6
 plotly>=5.20
+matplotlib>=3.8       # static report figures (scripts/backtest_players.py)
 gradio==6.28.0
 huggingface_hub>=0.23
 pytest>=8
