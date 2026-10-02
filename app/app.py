@@ -668,9 +668,11 @@ def make_footer(manifest: dict) -> str:
     # Credits open in a new tab so filter state survives
     return (
         '<p>Data: contract dates for 500 players collected by hand by the team; '
-        'Transfermarkt values, via the Kaggle dataset '
+        'Transfermarkt values and player profiles, via the Kaggle datasets '
         f'<a href="{kaggle}/davidcariboo/player-scores" target="_blank" rel="noopener">player-scores</a>'
-        ' by davidcariboo.</p>'
+        ' by davidcariboo and '
+        f'<a href="{kaggle}/xfkzujqjvx97n/football-datasets" target="_blank" rel="noopener">football-datasets</a>'
+        ' by salimt.</p>'
         '<p>Coursework for CMU 24-679 (Yunus Polatoglu &amp; Jack Stevens). '
         'Not for transfer or betting decisions.</p>'
         f'<p>Model {version}, built {built}.</p>'

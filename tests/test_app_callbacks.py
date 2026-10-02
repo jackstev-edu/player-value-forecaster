@@ -1,5 +1,6 @@
 """Callback level tests for the Gradio app, run without launching it."""
 import importlib.util
+import re
 from pathlib import Path
 
 import gradio as gr
@@ -185,6 +186,20 @@ def test_fmt_eur_formats_and_handles_missing(app):
     assert app.fmt_eur(750_000) == "€750k"
     assert app.fmt_eur(float("nan")) == "unknown"
     assert app.fmt_eur(None) == "unknown"
+
+
+def test_readme_and_footer_credit_the_same_sources(app):
+    """The Space page and the in-app footer must name the same datasets."""
+    readme = (Path(__file__).resolve().parents[1] / "app" / "README.md").read_text(encoding="utf-8")
+    footer = app.make_footer(app.MANIFEST)
+    # Match the Kaggle dataset slug wherever it appears, in markdown or in href
+    slugs = lambda text: set(re.findall(r"kaggle\.com/datasets/[\w-]+/([\w-]+)", text))
+    assert slugs(footer), "the footer credits no Kaggle dataset at all"
+    assert slugs(readme) == slugs(footer), (
+        f"README credits {sorted(slugs(readme))}, footer credits {sorted(slugs(footer))}")
+    for author in ("davidcariboo", "salimt"):
+        if author in footer:
+            assert author in readme, f"{author} is credited in the footer but not the README"
 
 
 def test_footer_falls_back_when_manifest_is_empty(app):
