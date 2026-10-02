@@ -63,6 +63,16 @@ def parts(app, outputs):
             "shown": outputs[n + 3], "more": outputs[n + 4]}
 
 
+def player_parts(app, outputs):
+    """The named pieces of an open_player_screen result."""
+    n = len(app.SCREENS) + 1
+    panels_at = n + 5
+    return {"hero": outputs[n], "chart": outputs[n + 1], "means": outputs[n + 2],
+            "sure": outputs[n + 3], "details": outputs[n + 4],
+            "panels": outputs[panels_at:panels_at + len(app.PANELS)],
+            "open": outputs[-2], "selected": outputs[-1]}
+
+
 def card_count(markup: str) -> int:
     return markup.count('class="pvf-card"')
 
@@ -383,12 +393,11 @@ def test_every_navigation_path_returns_the_same_shape(app, defaults):
 
 def test_player_screen_draws_a_chart_card_and_explanation(app):
     pid = int(app.PLAYERS["player_id"].iloc[0])
-    out = app.open_player_screen(pid, app.DEFAULT_HORIZON)
-    _head, chart, card, explain, selected = out[len(app.SCREENS) + 1:]
-    assert isinstance(chart, go.Figure)
-    assert app.PLAYER_BY_ID[pid]["name"] in card
-    assert "What this means" in explain
-    assert selected == pid
+    got = player_parts(app, app.open_player_screen(pid, app.DEFAULT_HORIZON))
+    assert isinstance(got["chart"], go.Figure)
+    assert app.PLAYER_BY_ID[pid]["name"] in got["hero"]
+    assert "What this means" in got["means"]
+    assert got["selected"] == pid
 
 
 def test_count_text_matches_what_is_drawn(app, defaults):
@@ -412,3 +421,221 @@ def test_look_ahead_is_offered_only_when_the_bundle_has_choices(app):
     assert len(radios) == 1
     assert radios[0].visible == (len(app.HORIZONS) > 1)
     assert list(radios[0].choices) == [(label, label) for label in app.HORIZONS]
+
+
+# Player screen: hero card, range bar and the three panels
+
+def hero_of(app, pid):
+    return app.hero_card(pid, app.DEFAULT_H)
+
+
+def aria_of(markup: str) -> str:
+    return re.search(r'aria-label="([^"]+)"', markup).group(1)
+
+
+def test_hero_numbers_match_the_explanation(app):
+    """The hero and the explanation read the same forecast, so they cannot disagree."""
+    h = app.DEFAULT_H
+    checked = 0
+    for pid in [int(p) for p in app.PLAYERS["player_id"].head(25)]:
+        row = app.PLAYERS_BY_ID.loc[pid]
+        explanation = app.make_explanation(pid, h)
+        hero = hero_of(app, pid)
+        if "No forecast" in explanation:
+            continue
+        # Middle estimate, today's value and the percent all appear in both
+        assert app.fmt_eur(row[f"p50_{h}"]) in hero
+        assert app.fmt_eur(row[f"p50_{h}"]) in explanation
+        assert app.fmt_eur(row["current_value_eur"]) in hero
+        assert app.fmt_eur(row["current_value_eur"]) in explanation
+        percent = app.fmt_change(row[f"change_{h}"]).lstrip("+-")
+        assert percent in hero and percent in explanation
+        checked += 1
+    assert checked, "no player had a forecast to compare"
+
+
+def test_range_bar_aria_label_states_all_four_numbers(app):
+    h = app.DEFAULT_H
+    for pid in [int(p) for p in app.PLAYERS["player_id"].head(15)]:
+        row = app.PLAYERS_BY_ID.loc[pid]
+        bar = app.range_bar(pid, h)
+        if not bar:
+            continue
+        label = aria_of(bar)
+        for value in (row[f"p10_{h}"], row[f"p90_{h}"], row[f"p50_{h}"],
+                      row["current_value_eur"]):
+            assert app.fmt_eur(value) in label, f"{app.fmt_eur(value)} missing from {label!r}"
+        assert "Likely range" in label and "middle estimate" in label
+
+
+def test_range_bar_marks_sit_inside_the_track(app):
+    """Every marker lands on the bar, even when today's value is outside the band."""
+    h = app.DEFAULT_H
+    for pid in [int(p) for p in app.PLAYERS["player_id"].head(40)]:
+        bar = app.range_bar(pid, h)
+        if not bar:
+            continue
+        for percent in re.findall(r"left:([\d.]+)%", bar):
+            assert 0.0 <= float(percent) <= 100.0
+        band = re.search(r'pvf-bar-band" style="left:([\d.]+)%;width:([\d.]+)%', bar)
+        left, width = float(band.group(1)), float(band.group(2))
+        assert 0 < width < 100, "the band should read as a band, not fill the track"
+        assert left + width <= 100.0
+
+
+def test_range_bar_is_empty_without_a_forecast(app, monkeypatch):
+    pid = int(app.PLAYERS["player_id"].iloc[0])
+    players = app.PLAYERS.copy()
+    players.loc[players["player_id"] == pid, f"p50_{app.DEFAULT_H}"] = float("nan")
+    monkeypatch.setattr(app, "PLAYERS_BY_ID", players.set_index("player_id", drop=False))
+    assert app.range_bar(pid, app.DEFAULT_H) == ""
+
+
+def test_hero_names_the_profile_fields(app):
+    pid = int(app.PLAYERS["player_id"].iloc[0])
+    player = app.PLAYER_BY_ID[pid]
+    hero = hero_of(app, pid)
+    for field in ("club_name", "league_name", "nationality", "sub_position"):
+        assert html.escape(str(player[field])) in hero
+    assert f'data-pid="{pid}"' in hero
+    assert app.seasons_text(app.DEFAULT_H) in hero
+
+
+def test_hero_escapes_every_bundle_string(app):
+    """A name or club carrying markup cannot introduce a tag into the hero."""
+    pid = int(app.PLAYERS["player_id"].iloc[0])
+    nasty = "<script>alert(1)</script> & co"
+    players = app.PLAYERS.copy()
+    for column in ("name", "club_name", "league_name", "nationality", "sub_position"):
+        players.loc[players["player_id"] == pid, column] = nasty
+    by_id = players.set_index("player_id", drop=False)
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(app, "PLAYERS_BY_ID", by_id)
+        mp.setattr(app, "PLAYER_BY_ID", {pid: by_id.loc[pid].to_dict()})
+        hero = app.hero_card(pid, app.DEFAULT_H)
+    # Only the hero's own elements survive, so the name cannot open a tag
+    tags = sorted(set(re.findall(r"<\s*([a-zA-Z][\w-]*)", hero)))
+    assert tags == ["div", "h2", "header", "p", "span"], f"unexpected tags {tags}"
+    assert "&lt;script&gt;" in hero and "&amp;" in hero
+
+
+def test_badge_appears_only_for_flagged_players(app, monkeypatch):
+    h = app.DEFAULT_H
+    pid = int(app.PLAYERS["player_id"].iloc[0])
+    if not app.low_confidence_reasons(app.PLAYERS_BY_ID.loc[pid][f"width_{h}"],
+                                      app.history_count(pid), h):
+        assert "pvf-badge" not in hero_of(app, pid)
+    # Widening the band past the cutoff must bring the badge out
+    players = app.PLAYERS.copy()
+    players.loc[players["player_id"] == pid, f"width_{h}"] = players[f"width_{h}"].max() * 10
+    monkeypatch.setattr(app, "PLAYERS_BY_ID", players.set_index("player_id", drop=False))
+    assert "pvf-badge" in app.hero_card(pid, h)
+    assert app.flag_reason_short(pid, h)
+
+
+def test_flag_reason_names_the_rule_that_fired(app, monkeypatch):
+    h = app.DEFAULT_H
+    pid = int(app.PLAYERS["player_id"].iloc[0])
+    players = app.PLAYERS.copy()
+    players.loc[players["player_id"] == pid, f"width_{h}"] = players[f"width_{h}"].max() * 10
+    monkeypatch.setattr(app, "PLAYERS_BY_ID", players.set_index("player_id", drop=False))
+    assert app.flag_reason_short(pid, h) == "unusually wide range"
+    # With no history recorded either, the reason names both rules
+    monkeypatch.setattr(app, "HISTORY_BY_ID", {})
+    assert app.flag_reason_short(pid, h) == "wide range, little history"
+
+
+def test_unflagged_player_has_no_reason_text(app):
+    h = app.DEFAULT_H
+    for pid in [int(p) for p in app.PLAYERS["player_id"].head(40)]:
+        flagged = bool(app.low_confidence_reasons(app.PLAYERS_BY_ID.loc[pid][f"width_{h}"],
+                                                  app.history_count(pid), h))
+        assert bool(app.flag_reason_short(pid, h)) == flagged
+
+
+def test_panels_arrive_closed(app):
+    got = player_parts(app, app.open_player_screen(
+        int(app.PLAYERS["player_id"].iloc[0]), app.DEFAULT_HORIZON))
+    assert [c.visible for c in got["panels"]] == [False] * len(app.PANELS)
+    assert got["open"] == "", "no panel should be remembered as open on arrival"
+
+
+def test_each_button_opens_only_its_own_panel(app):
+    for i, name in enumerate(app.PANELS):
+        out = app.open_panel(name, "")
+        shown = [c.visible for c in out[:len(app.PANELS)]]
+        assert shown == [j == i for j in range(len(app.PANELS))]
+        assert out[-1] == name
+
+
+def test_opening_one_panel_closes_the_others(app):
+    out = app.open_panel("details", "means")
+    assert [c.visible for c in out[:3]] == [False, False, True]
+    assert out[-1] == "details"
+
+
+def test_clicking_the_open_panel_closes_it(app):
+    out = app.open_panel("sure", "sure")
+    assert [c.visible for c in out[:3]] == [False, False, False]
+    assert out[-1] == ""
+
+
+def test_panel_texts_are_filled_for_the_open_player(app):
+    pid = int(app.PLAYERS["player_id"].iloc[0])
+    got = player_parts(app, app.open_player_screen(pid, app.DEFAULT_HORIZON))
+    assert "What this means" in got["means"]
+    assert "8 times out of 10" in got["sure"]
+    assert app.PLAYER_BY_ID[pid]["club_name"] in got["details"]
+
+
+def test_how_sure_adds_no_claim_the_app_does_not_already_make(app):
+    """Every paragraph comes from wording the app already shows elsewhere."""
+    pid = int(app.PLAYERS["player_id"].iloc[0])
+    text = app.how_sure_text(pid, app.DEFAULT_H)
+    for paragraph in app.HOW_IT_WORKS.split("\n\n")[1:]:
+        assert paragraph in text
+    assert app.LIKELY_MEANING in text
+
+
+def test_how_sure_names_the_flag_reasons_when_flagged(app, monkeypatch):
+    h = app.DEFAULT_H
+    pid = int(app.PLAYERS["player_id"].iloc[0])
+    assert "not flagged low confidence" in app.how_sure_text(pid, h)
+    players = app.PLAYERS.copy()
+    players.loc[players["player_id"] == pid, f"width_{h}"] = players[f"width_{h}"].max() * 10
+    monkeypatch.setattr(app, "PLAYERS_BY_ID", players.set_index("player_id", drop=False))
+    flagged = app.how_sure_text(pid, h)
+    assert "Low confidence" in flagged and "widest" in flagged
+
+
+def test_player_details_lists_every_fact(app):
+    pid = int(app.PLAYERS["player_id"].iloc[0])
+    player = app.PLAYER_BY_ID[pid]
+    text = app.player_details(pid)
+    for label in ("Club", "League", "League country", "Nationality", "Position",
+                  "Latest valuation", "Past valuations"):
+        assert f"| {label} |" in text
+    for field in ("club_name", "league_name", "league_country", "nationality", "sub_position"):
+        assert html.escape(str(player[field])) in text
+    assert str(app.history_count(pid)) in text
+
+
+def test_player_details_escapes_its_values(app):
+    pid = int(app.PLAYERS["player_id"].iloc[0])
+    by_id = {pid: dict(app.PLAYER_BY_ID[pid], club_name="<b>A & B</b>")}
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(app, "PLAYER_BY_ID", by_id)
+        text = app.player_details(pid)
+    assert "<b>" not in text and "&lt;b&gt;" in text and "&amp;" in text
+
+
+def test_chart_is_styled_for_the_dark_page(app):
+    """Axis text and hovers must be light, since the page behind them is near black."""
+    fig = app.make_chart(int(app.PLAYERS["player_id"].iloc[0]))
+    layout = fig.layout
+    assert layout.font.color == app.CHART_TEXT
+    assert layout.paper_bgcolor == "rgba(0,0,0,0)"
+    assert layout.plot_bgcolor == "rgba(0,0,0,0)"
+    assert layout.hoverlabel.font.color == app.CHART_TEXT
+    # The legend sits below the plot, so the margin has to leave room for it
+    assert layout.margin.b >= 48

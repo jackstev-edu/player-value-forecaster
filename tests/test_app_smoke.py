@@ -215,13 +215,17 @@ def test_opening_a_card_opens_that_player(app):
     got = search_parts(app, defaults_of(app))
     pid = int(got["ids"][5])
     out = app.open_player_screen(pid, app.DEFAULT_HORIZON)
-    head, chart, card, explain, selected = out[len(app.SCREENS) + 1:]
-    assert f'data-pid="{pid}"' in head
-    assert selected == pid
+    n = len(app.SCREENS) + 1
+    hero, chart, means, sure, details = out[n:n + 5]
+    assert f'data-pid="{pid}"' in hero
+    assert out[-1] == pid
     assert isinstance(chart, go.Figure)
-    assert app.PLAYER_BY_ID[pid]["name"] in card
-    assert "What this means" in explain
-    assert not BROKEN_TEXT.search(card)
+    assert app.PLAYER_BY_ID[pid]["name"] in hero
+    assert "What this means" in means
+    assert "8 times out of 10" in sure
+    assert app.PLAYER_BY_ID[pid]["club_name"] in details
+    for text in (hero, means, sure, details):
+        assert not BROKEN_TEXT.search(text)
 
 
 def test_every_featured_card_opens_its_own_player(app):

@@ -8,6 +8,7 @@ import json
 import math
 import os
 import unicodedata
+from functools import partial
 from datetime import datetime
 from pathlib import Path
 
@@ -60,6 +61,8 @@ LOW_CONFIDENCE_SHARE = 0.2
 MIN_HISTORY_ROWS = 3
 FLAG = "⚠ "
 FLAG_TITLE = "Low confidence forecast"
+# Disclosure panels on the Player screen; only one is ever open
+PANELS = ["means", "sure", "details"]
 # Cards drawn per page, and how many Load more adds
 PAGE = 24
 # Screen order, so Back always means the screen before this one
@@ -70,6 +73,8 @@ BACK_TO = {"home": "home", "search": "home", "results": "search", "player": "res
 PITCH, CHALK, INK, GRASS, GOLD, MUTED = "#14402F", "#F2F3EC", "#17201C", "#3E7A5B", "#D4A72C", "#6B7A72"
 # Helper and hint text colour; 7.6:1 on white, unlike stone 400
 SUBDUED = "#57534E"
+# Chart ink on the night page, so axis text and hovers stay readable
+CHART_TEXT, CHART_DIM, CHART_LINE = "#F2F3EC", "#B5C2BA", "#6FD69A"
 
 
 def load_bundle(bundle_dir: Path = BUNDLE_DIR):
@@ -359,6 +364,124 @@ def player_head(pid: int, h: int) -> str:
             f'{c["arrow"]} {c["change"]} in {seasons_text(h)}</span></p></header>')
 
 
+def flag_reason_short(pid: int, h: int) -> str:
+    """The low confidence reason in a few words, for the hero badge."""
+    width = PLAYERS_BY_ID.loc[pid][f"width_{h}"]
+    reasons = low_confidence_reasons(width, history_count(pid), h)
+    if not reasons:
+        return ""
+    if "history" in reasons and "width" in reasons:
+        return "wide range, little history"
+    if "history" in reasons:
+        n = history_count(pid)
+        return "no value history" if n == 0 else f"only {n} past valuations"
+    return "unusually wide range"
+
+
+def bar_position(value: float, lo: float, hi: float) -> float:
+    """Where a value sits across the drawn domain, as a percentage."""
+    if hi <= lo:
+        return 50.0
+    return max(0.0, min(100.0, (value - lo) / (hi - lo) * 100.0))
+
+
+def range_bar(pid: int, h: int) -> str:
+    """Low to high band with the middle estimate and today's value marked."""
+    row = PLAYERS_BY_ID.loc[pid]
+    p10, p50, p90 = row[f"p10_{h}"], row[f"p50_{h}"], row[f"p90_{h}"]
+    current = row["current_value_eur"]
+    if any(pd.isna(v) for v in (p10, p50, p90)):
+        return ""
+    # The domain covers today's value too, so the tick is never off the bar
+    lo, hi = min(p10, current), max(p90, current)
+    # Padding leaves track either side, so the band reads as a band not a fill
+    pad = (hi - lo) * 0.08 or max(hi, 1.0) * 0.08
+    lo, hi = lo - pad, hi + pad
+    band_left, band_right = bar_position(p10, lo, hi), bar_position(p90, lo, hi)
+    mid, now = bar_position(p50, lo, hi), bar_position(current, lo, hi)
+    label = (f"Likely range {fmt_eur(p10)} to {fmt_eur(p90)}, "
+             f"middle estimate {fmt_eur(p50)}, current value {fmt_eur(current)}")
+    return (f'<div class="pvf-bar" role="img" aria-label="{html.escape(label)}">'
+            f'<div class="pvf-bar-track">'
+            f'<div class="pvf-bar-band" style="left:{band_left:.1f}%;'
+            f'width:{band_right - band_left:.1f}%"></div>'
+            f'<div class="pvf-bar-now" style="left:{now:.1f}%"></div>'
+            f'<div class="pvf-bar-mid" style="left:{mid:.1f}%"></div>'
+            f'</div>'
+            f'<div class="pvf-bar-ends"><span>{fmt_eur(p10)}</span>'
+            f'<span>{fmt_eur(p90)}</span></div>'
+            f'<p class="pvf-bar-key"><span class="pvf-key-mid"></span> middle estimate '
+            f'{fmt_eur(p50)} <span class="pvf-key-now"></span> value now {fmt_eur(current)}</p>'
+            f'</div>')
+
+
+def hero_card(pid: int, h: int) -> str:
+    """Name, profile, the two big numbers and the range bar, in one block."""
+    player = PLAYER_BY_ID[pid]
+    row = PLAYERS_BY_ID.loc[pid]
+    data = card_data(row, h)
+    e = html.escape
+    reason = flag_reason_short(pid, h)
+    badge = (f'<span class="pc-flag pvf-badge" title="{FLAG_TITLE}">\u26a0 Low confidence: '
+             f'{e(reason)}</span>') if reason else ""
+    p50 = row[f"p50_{h}"]
+    forecast = fmt_eur(p50) if pd.notna(p50) else "no forecast"
+    profile = " \u00b7 ".join(str(v) for v in (
+        f"Age {data['age']}", player["club_name"], player["league_name"],
+        player["nationality"]))
+    return (f'<header class="pvf-player-head" data-pid="{pid}">'
+            f'<span class="pc-pos">{e(str(data["pos"]))}</span>{badge}'
+            f'<h2>{e(str(player["name"]))}</h2>'
+            f'<p class="pvf-profile">{e(profile)}</p>'
+            f'<div class="pvf-numbers">'
+            f'<div class="pvf-number"><span class="pvf-number-label">Value now</span>'
+            f'<span class="pvf-big">{data["value"]}</span></div>'
+            f'<div class="pvf-number"><span class="pvf-number-label">'
+            f'In {seasons_text(h)}</span>'
+            f'<span class="pvf-big">{forecast}</span>'
+            f'<span class="pc-change pc-{data["trend"]}">{data["arrow"]} {data["change"]}</span>'
+            f'</div></div>'
+            f'{range_bar(pid, h)}'
+            f'</header>')
+
+
+# The range wording the app already uses, kept in one place
+LIKELY_MEANING = ("The likely range runs from the model's 10th to its 90th percentile. "
+                  "It aims for the real value to land inside that range 8 times out of 10, "
+                  "so roughly 1 player in 5 should fall outside it.")
+
+
+def how_sure_text(pid: int, h: int) -> str:
+    """Why this forecast may be trusted, using only claims the app already makes."""
+    parts = [LIKELY_MEANING]
+    row = PLAYERS_BY_ID.loc[pid]
+    reasons = low_confidence_reasons(row[f"width_{h}"], history_count(pid), h)
+    if reasons:
+        parts.append(warning_text(reasons, history_count(pid), h))
+    else:
+        parts.append("This forecast is not flagged low confidence: its range is not among "
+                     f"the widest {LOW_CONFIDENCE_SHARE:.0%} and the player has at least "
+                     f"{MIN_HISTORY_ROWS} past valuations.")
+    # Paragraphs 2 and 3 of the accordion carry the evaluation and the limits
+    parts.extend(HOW_IT_WORKS.split("\n\n")[1:])
+    return "\n\n".join(parts)
+
+
+def player_details(pid: int) -> str:
+    """Flat facts about the player, straight from the bundle."""
+    player = PLAYER_BY_ID[pid]
+    n = history_count(pid)
+    updated = fmt_day(player["value_date"]) or "date unknown"
+    rows = [("Club", player["club_name"]), ("League", player["league_name"]),
+            ("League country", player["league_country"]),
+            ("Nationality", player["nationality"]),
+            ("Position", player["sub_position"]),
+            ("Latest valuation", updated),
+            ("Past valuations", str(n) if n else "none recorded")]
+    body = "\n".join(f"| {name} | {html.escape(str(value))} |" for name, value in rows)
+    return f"| | |\n|---|---|\n{body}"
+
+
 def count_text(total: int, shown: int, sort_by: str) -> str:
     """How many matched and how many are on screen, in the singular when needed."""
     who = "**1 player** matches" if total == 1 else f"**{total} players** match"
@@ -492,12 +615,12 @@ def make_chart(pid: int):
         # Band starts at the last known value so it opens from today
         bx = [last_date] + tx
         fig.add_trace(go.Scatter(x=bx + bx[::-1], y=[last_val] + hi + lo[::-1] + [last_val],
-                                 fill="toself", mode="lines", fillcolor="rgba(212,167,44,0.22)",
+                                 fill="toself", mode="lines", fillcolor="rgba(212,167,44,0.26)",
                                  line=dict(width=0), hoverinfo="skip", name="Likely range",
                                  legendrank=3))
     # Hover text reuses the card's formatter so both read identically
     fig.add_trace(go.Scatter(x=hx, y=hy, mode="lines+markers", name="Market value", legendrank=1,
-                             line=dict(color=GRASS, width=2.5, shape="hv"), marker=dict(size=5),
+                             line=dict(color=CHART_LINE, width=2.5, shape="hv"), marker=dict(size=5),
                              customdata=[fmt_eur(v) for v in hy],
                              hovertemplate="Market value: %{customdata}<extra></extra>"))
     if has_forecast:
@@ -513,21 +636,21 @@ def make_chart(pid: int):
                                  hoverinfo="skip", showlegend=False))
         # Dotted rule marks where observed history stops and forecast starts
         if pd.notna(last_date):
-            fig.add_vline(x=last_date, line=dict(color=MUTED, width=1, dash="dot"))
+            fig.add_vline(x=last_date, line=dict(color=CHART_DIM, width=1, dash="dot"))
     ticks, labels = money_ticks(top)
     fig.update_layout(
-        height=380, margin=dict(l=8, r=8, t=8, b=8), hovermode="x unified",
+        height=380, margin=dict(l=8, r=8, t=8, b=56), hovermode="x unified",
         plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-        font=dict(family="Source Sans 3, sans-serif", size=13, color=INK),
+        font=dict(family="Barlow Condensed, system-ui, sans-serif", size=14, color=CHART_TEXT),
         # Fixed entry widths stop late web fonts clipping a measured label
-        legend=dict(orientation="h", yanchor="top", y=-0.1, x=0, bgcolor="rgba(0,0,0,0)",
-                    entrywidth=150, entrywidthmode="pixels"),
+        legend=dict(orientation="h", yanchor="top", y=-0.18, x=0, bgcolor="rgba(0,0,0,0)",
+                    font=dict(size=13), itemwidth=30),
         # Light tooltip with dark ink stays readable on either page theme
-        hoverlabel=dict(bgcolor="#FFFFFF", bordercolor=MUTED, font=dict(color=INK)),
-        modebar=dict(bgcolor="rgba(0,0,0,0)", color=MUTED, activecolor=GRASS),
+        hoverlabel=dict(bgcolor="#12291E", bordercolor="#2C4D3D", font=dict(color=CHART_TEXT)),
+        modebar=dict(bgcolor="rgba(0,0,0,0)", color=CHART_DIM, activecolor=CHART_LINE),
         yaxis=dict(tickvals=ticks, ticktext=labels, range=[0, ticks[-1] * 1.02],
-                   gridcolor="rgba(107,122,114,0.25)", zeroline=False),
-        xaxis=dict(hoverformat="%b %Y", gridcolor="rgba(107,122,114,0.12)", zeroline=False),
+                   gridcolor="rgba(181,194,186,0.20)", zeroline=False),
+        xaxis=dict(hoverformat="%b %Y", gridcolor="rgba(181,194,186,0.10)", zeroline=False),
     )
     return fig
 
@@ -735,8 +858,14 @@ def load_more(ids, shown, horizon, sort_by):
             gr.Button(visible=total > shown))
 
 
-# Four screen columns, the screen name, then head, chart, card, explanation and id
-PLAYER_OUTPUTS = len(SCREENS) + 6
+# Screens, screen name, hero, chart, three panel texts, three panel columns,
+# the open panel and the selected id
+PLAYER_OUTPUTS = len(SCREENS) + 1 + 2 + len(PANELS) * 2 + 2
+
+
+def closed_panels() -> list:
+    """Every disclosure panel hidden, the state a freshly opened player starts in."""
+    return [gr.Column(visible=False) for _ in PANELS]
 
 
 def open_player_screen(pid, horizon):
@@ -748,8 +877,16 @@ def open_player_screen(pid, horizon):
     if pid not in PLAYER_BY_ID:
         return [gr.skip()] * PLAYER_OUTPUTS
     h = horizon_of(horizon)
-    return [*show("player"), player_head(pid, h), make_chart(pid), make_card(pid, h),
-            make_explanation(pid, h), pid]
+    # Panels always arrive closed, so the hero and chart lead the screen
+    return [*show("player"), hero_card(pid, h), make_chart(pid),
+            make_explanation(pid, h), how_sure_text(pid, h), player_details(pid),
+            *closed_panels(), "", pid]
+
+
+def open_panel(which: str, current: str):
+    """Open one panel and close the rest; clicking the open one closes it."""
+    now = "" if which == current else which
+    return [*[gr.Column(visible=name == now) for name in PANELS], now]
 
 
 def open_from_cards(horizon, evt: gr.EventData):
@@ -855,6 +992,26 @@ HISTORY_JS = """
 """
 HEAD = f"<style>{PAGE_CSS}</style>{HISTORY_JS}"
 
+def lean_note_row(where: str):
+    """One line lean warning with a Why button, used on Home and on Player."""
+    if MANIFEST.get("is_mock"):
+        gr.HTML('<p class="pvf-note-line">Demo data: these players and forecasts are '
+                'invented while the models are being trained.</p>')
+        return None
+    if not OPTIMISM_NOTE:
+        return None
+    with gr.Row(elem_classes="pvf-lean"):
+        gr.HTML(f'<p class="pvf-note-line">{LEAN_SHORT}</p>')
+        button = gr.Button("Why?", size="sm", scale=0, min_width=90,
+                           elem_classes="pvf-why")
+    with gr.Column(visible=False, elem_classes="pvf-why-panel") as panel:
+        gr.Markdown(OPTIMISM_NOTE)
+    state = gr.State(False)
+    # Each screen keeps its own disclosure, since a component renders once
+    button.click(toggle, state, [panel, state], api_name=f"why_{where}")
+    return button
+
+
 APP_TITLE = "Player Value Forecaster"
 LOOK_AHEAD_INFO = "How many seasons ahead the forecast looks"
 # Horizon wording is written once here, since three places repeat it
@@ -889,10 +1046,10 @@ LEAN_SHORT = "Forecasts lean optimistic"
 
 with gr.Blocks(title=APP_TITLE) as demo:
     screen = gr.State("home")
+    panel_state = gr.State("")
     ids_state = gr.State([])
     shown_state = gr.State(0)
     selected_state = gr.State(None)
-    why_open = gr.State(False)
     how_open = gr.State(False)
 
     # One id to scope every rule; an id outranks Gradio's own class rules
@@ -902,16 +1059,7 @@ with gr.Blocks(title=APP_TITLE) as demo:
             gr.HTML(f'<header class="pvf-hero"><p class="pvf-kicker">Transfermarkt forecasts'
                     f'</p><h1>{APP_TITLE_TEXT}</h1>'
                     f'<p class="pvf-tagline">{TAGLINE}</p></header>')
-            if MANIFEST.get("is_mock"):
-                gr.HTML('<p class="pvf-note-line">Demo data: these players and forecasts are '
-                        'invented while the models are being trained.</p>')
-            elif OPTIMISM_NOTE:
-                with gr.Row(elem_classes="pvf-lean"):
-                    gr.HTML(f'<p class="pvf-note-line">{LEAN_SHORT}</p>')
-                    why_btn = gr.Button("Why?", size="sm", scale=0, min_width=90,
-                                        elem_classes="pvf-why")
-                with gr.Column(visible=False, elem_classes="pvf-why-panel") as why_panel:
-                    gr.Markdown(OPTIMISM_NOTE)
+            home_lean = lean_note_row("home")
             with gr.Row(elem_classes="pvf-actions"):
                 start_btn = gr.Button("Search players", variant="primary", size="lg",
                                       elem_classes=["pvf-big-btn", "pvf-start", "pvf-fwd"])
@@ -976,12 +1124,22 @@ with gr.Blocks(title=APP_TITLE) as demo:
                 back_player = gr.Button("Back", size="lg", scale=0, min_width=110,
                                         elem_classes=["pvf-big-btn", "pvf-back"])
             head_html = gr.HTML(elem_classes="pvf-head-wrap")
-            with gr.Row(equal_height=False, elem_classes="pvf-detail"):
-                with gr.Column(scale=3):
-                    chart = gr.Plot(show_label=False, elem_classes="pvf-chart")
-                    explain = gr.Markdown(make_explanation(None), elem_classes="pvf-explain")
-                with gr.Column(scale=2, min_width=300):
-                    card = gr.Markdown(CARD_PROMPT, elem_classes="pvf-card-panel")
+            # The same lean warning as Home, built by the same helper
+            player_lean = lean_note_row("player")
+            chart = gr.Plot(show_label=False, elem_classes="pvf-chart")
+            with gr.Row(elem_classes="pvf-panel-buttons"):
+                means_btn = gr.Button("What this means", size="lg",
+                                      elem_classes=["pvf-big-btn", "pvf-panel-btn"])
+                sure_btn = gr.Button("How sure is it", size="lg",
+                                     elem_classes=["pvf-big-btn", "pvf-panel-btn"])
+                details_btn = gr.Button("Player details", size="lg",
+                                        elem_classes=["pvf-big-btn", "pvf-panel-btn"])
+            with gr.Column(visible=False, elem_classes="pvf-panel") as means_panel:
+                explain = gr.Markdown(elem_classes="pvf-explain")
+            with gr.Column(visible=False, elem_classes="pvf-panel") as sure_panel:
+                sure_md = gr.Markdown(elem_classes="pvf-explain")
+            with gr.Column(visible=False, elem_classes="pvf-panel") as details_panel:
+                details_md = gr.Markdown(elem_classes="pvf-card-panel")
 
     # Hidden target the browser Back hook clicks after popstate
     pop = gr.Button("pop", elem_classes="pvf-pop")
@@ -990,7 +1148,9 @@ with gr.Blocks(title=APP_TITLE) as demo:
     filters = [search_box, league, country, nation, position, age_min, age_max, horizon, sort_by]
     nav_out = [home_screen, search_screen, results_screen, player_screen, screen]
     search_out = nav_out + [cards, count, ids_state, shown_state, more_btn]
-    player_out = nav_out + [head_html, chart, card, explain, selected_state]
+    panels = [means_panel, sure_panel, details_panel]
+    player_out = (nav_out + [head_html, chart, explain, sure_md, details_md]
+                  + panels + [panel_state, selected_state])
 
     start_btn.click(lambda: show("search"), None, nav_out).then(None, js=AFTER_NAV_JS)
     go_btn.click(run_search, filters, search_out, api_name="run_search").then(None, js=AFTER_NAV_JS)
@@ -1005,9 +1165,11 @@ with gr.Blocks(title=APP_TITLE) as demo:
     featured.click(open_from_cards, [horizon], player_out,
                    api_name="open_featured").then(None, js=AFTER_NAV_JS)
     clear_btn.click(clear_filters, None, filters, api_name="clear_filters")
-    if OPTIMISM_NOTE:
-        why_btn.click(toggle, why_open, [why_panel, why_open])
     how_btn.click(toggle, how_open, [how_panel, how_open])
+    # Each panel button opens its own and closes the other two
+    for name, button in zip(PANELS, (means_btn, sure_btn, details_btn)):
+        button.click(partial(open_panel, name), panel_state, panels + [panel_state],
+                     api_name=f"panel_{name}")
     for btn in (back_search, back_results, back_player, pop):
         btn.click(go_back, screen, nav_out).then(None, js=AFTER_NAV_JS)
 

@@ -145,6 +145,66 @@
 }
 #pvf .prose header.pvf-player-head .pc-flag { margin-left: 12px; }
 
+/* Hero card: profile line, the two big numbers, then the range bar */
+#pvf .prose p.pvf-profile { color: #B5C2BA !important; margin: 0 0 14px !important; }
+#pvf .pvf-numbers { display: flex; flex-wrap: wrap; gap: 36px; margin-bottom: 18px; }
+#pvf .pvf-number { display: flex; flex-direction: column; gap: 2px; }
+#pvf .pvf-number-label {
+  color: #B5C2BA; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700;
+  font-size: 0.78rem;
+}
+#pvf .prose header.pvf-player-head span.pvf-big {
+  font-family: "Barlow Condensed", "Arial Narrow", sans-serif;
+  font-size: clamp(2.2rem, 6vw, 3.4rem); font-weight: 800; line-height: 1;
+  color: #F2F3EC;
+}
+#pvf .pvf-badge {
+  display: inline-block; margin-left: 12px; padding: 3px 10px; border-radius: 999px;
+  background: #3A3219; color: #FFC857; font-size: 0.82rem; font-weight: 700;
+}
+
+/* Range bar: the 10th to 90th band, today's value and the middle estimate */
+#pvf .pvf-bar { margin-top: 6px; }
+#pvf .pvf-bar-track {
+  position: relative; height: 16px; border-radius: 999px; background: #081710;
+  border: 1px solid #2C4D3D;
+}
+#pvf .pvf-bar-band {
+  position: absolute; top: 0; bottom: 0; border-radius: 999px;
+  background: linear-gradient(90deg, rgba(212,167,44,0.35), rgba(212,167,44,0.75));
+}
+#pvf .pvf-bar-mid {
+  position: absolute; top: -5px; width: 4px; height: 26px; border-radius: 2px;
+  background: #F2F3EC; transform: translateX(-2px);
+}
+#pvf .pvf-bar-now {
+  position: absolute; top: -2px; width: 2px; height: 20px; background: #6FD69A;
+  transform: translateX(-1px);
+}
+#pvf .pvf-bar-ends {
+  display: flex; justify-content: space-between; margin-top: 6px;
+  color: #B5C2BA; font-size: 0.82rem;
+}
+#pvf .prose p.pvf-bar-key {
+  color: #B5C2BA !important; font-size: 0.8rem; margin: 4px 0 0 !important;
+}
+#pvf .pvf-key-mid, #pvf .pvf-key-now {
+  display: inline-block; width: 10px; height: 10px; border-radius: 2px;
+  vertical-align: middle; margin-right: 4px;
+}
+#pvf .pvf-key-mid { background: #F2F3EC; }
+#pvf .pvf-key-now { background: #6FD69A; }
+
+/* One panel open at a time, behind three big buttons */
+#pvf .pvf-panel-buttons { gap: 12px !important; }
+#pvf .pvf-panel {
+  background: #0C1D15; border: 1px solid #2C4D3D; border-radius: 10px;
+  padding: 14px 18px !important;
+}
+#pvf .pvf-panel .prose * { color: #F2F3EC; }
+#pvf .pvf-panel .prose table { width: 100%; }
+#pvf .pvf-panel .prose th, #pvf .pvf-panel .prose td { padding: 6px 8px; }
+
 /* Markdown has no block fill of its own, so give it a panel over the dark page */
 #pvf .block.pvf-card-panel, #pvf .block.pvf-explain {
   background: #0C1D15 !important; border: 1px solid #2C4D3D !important;
