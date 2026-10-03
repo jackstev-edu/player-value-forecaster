@@ -134,13 +134,20 @@ def main():
     ap.add_argument("--pct", type=float, default=0.01,
                     help="judge against the worst this share of background pixels (default 0.01)")
     ap.add_argument("--show-all", action="store_true", help="list passing text too")
+    ap.add_argument("--sizes", default="",
+                    help="extra viewports as WxH, comma separated, e.g. 1366x700,1366x1200")
     args = ap.parse_args()
     base, space = pc.resolve(args)
     path = pc.page_path(args)
     failures, checked = [], 0
 
     with sync_playwright() as pw:
-        for tag, (w, h) in (("desktop", pc.DESKTOP), ("phone390", pc.PHONE)):
+        views = [("desktop", pc.DESKTOP), ("phone390", pc.PHONE)]
+        # A fixed backdrop sits differently at each height, so sweep a few
+        for extra in filter(None, args.sizes.split(",")):
+            w, h = (int(v) for v in extra.lower().split("x"))
+            views.append((f"{w}x{h}", (w, h)))
+        for tag, (w, h) in views:
             s = pc.Session(pw, base, space, w, h)
             page = s.open(path)
             dpr = page.evaluate("() => devicePixelRatio")

@@ -858,9 +858,16 @@ def load_more(ids, shown, horizon, sort_by):
             gr.Button(visible=total > shown))
 
 
-# Screens, screen name, hero, chart, three panel texts, three panel columns,
-# the open panel and the selected id
-PLAYER_OUTPUTS = len(SCREENS) + 1 + 2 + len(PANELS) * 2 + 2
+def season_card(pid: int, h: int) -> str:
+    """The per season table, or nothing while the bundle has a single horizon."""
+    if len(HORIZONS) <= 1:
+        return ""
+    return f"#### Every season\n\n{make_card(pid, h)}"
+
+
+# Screens, screen name, hero, chart, three panel texts, the season table,
+# three panel columns, the open panel and the selected id
+PLAYER_OUTPUTS = len(SCREENS) + 1 + 2 + 1 + len(PANELS) * 2 + 2
 
 
 def closed_panels() -> list:
@@ -880,7 +887,7 @@ def open_player_screen(pid, horizon):
     # Panels always arrive closed, so the hero and chart lead the screen
     return [*show("player"), hero_card(pid, h), make_chart(pid),
             make_explanation(pid, h), how_sure_text(pid, h), player_details(pid),
-            *closed_panels(), "", pid]
+            season_card(pid, h), *closed_panels(), "", pid]
 
 
 def open_panel(which: str, current: str):
@@ -1140,6 +1147,10 @@ with gr.Blocks(title=APP_TITLE) as demo:
                 sure_md = gr.Markdown(elem_classes="pvf-explain")
             with gr.Column(visible=False, elem_classes="pvf-panel") as details_panel:
                 details_md = gr.Markdown(elem_classes="pvf-card-panel")
+            # One horizon makes this table a copy of the hero, so it only shows
+            # when a bundle carries more than one season to compare
+            season_table = gr.Markdown(visible=len(HORIZONS) > 1,
+                                       elem_classes=["pvf-card-panel", "pvf-seasons"])
 
     # Hidden target the browser Back hook clicks after popstate
     pop = gr.Button("pop", elem_classes="pvf-pop")
@@ -1149,7 +1160,7 @@ with gr.Blocks(title=APP_TITLE) as demo:
     nav_out = [home_screen, search_screen, results_screen, player_screen, screen]
     search_out = nav_out + [cards, count, ids_state, shown_state, more_btn]
     panels = [means_panel, sure_panel, details_panel]
-    player_out = (nav_out + [head_html, chart, explain, sure_md, details_md]
+    player_out = (nav_out + [head_html, chart, explain, sure_md, details_md, season_table]
                   + panels + [panel_state, selected_state])
 
     start_btn.click(lambda: show("search"), None, nav_out).then(None, js=AFTER_NAV_JS)

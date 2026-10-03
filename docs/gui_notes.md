@@ -2,43 +2,19 @@
 
 ## Recheck after any Gradio upgrade
 
-The Space runs Gradio 6.28.0 (pinned by `sdk_version` in `app/README.md`). Two parts of
-`app/style.css` rely on details Gradio does not promise to keep. Both can break silently:
-the app still runs, but the phone layout degrades.
+The Space runs Gradio 6.28.0, pinned by `sdk_version` in `app/README.md`. The current
+list of Gradio internals the app leans on is under "Gradio internals the redesign depends
+on" below. Rerun the probes in `scripts/ui_probes/` after any bump, since every one of
+those rules fails silently: the app still runs and only the look degrades.
 
-### 1. The phone layout CSS uses Gradio's internal class names
+### Historical, for the table based app (replaced by the FIFA redesign, 2 Oct 2026)
 
-The rules inside `@media (max-width: 640px)` target elements by Gradio's own class
-names, not by classes the app sets:
-
-| Class | What the rule does |
-|---|---|
-| `virtual-row`, `virtual-body`, `header-table`, `first-column` | Fixed column widths so the table scrolls sideways instead of squeezing words letter by letter |
-| `tab-like-container` | Lets the number boxes beside the age sliders grow to 44px without clipping |
-| `label-wrap` | Centres the label and arrow on the taller accordion bars |
-| `modebar-container` (Plotly) | Hides the chart toolbar, whose icons are too small to tap |
-
-If Gradio renames any of these, the matching rule stops applying with no error.
-
-### 2. The pinned Player column is a CSS workaround
-
-`gr.Dataframe(pinned_columns=1)` is accepted by Gradio 6.28 but does nothing. The
-front end receives the setting and never uses it. The Player column stays in view on
-phones only because `style.css` makes the `first-column` cells `position: sticky`.
-The `pinned_columns=1` argument is kept so Gradio's own pinning takes over if a
-later version implements it. At that point, delete the CSS rule so the two do not
-fight.
-
-### How to recheck
-
-Open the app at 390px wide (browser dev tools, phone mode) in light and dark, then:
-
-1. The table scrolls sideways inside its own box, the page itself does not, and
-   words are not split letter by letter.
-2. Scroll the table sideways: the Player column stays pinned on the left.
-3. Open "More filters": the age boxes show whole numbers, and the accordion label
-   and arrow sit on one line.
-4. The chart shows no toolbar on the phone, and on desktop it still has one.
+The old single page app had a `gr.Dataframe` and an accordion, and its phone CSS targeted
+`virtual-row`, `virtual-body`, `header-table`, `first-column`, `tab-like-container` and
+`label-wrap`. It also worked around `gr.Dataframe(pinned_columns=1)`, which Gradio 6.28
+accepts but never renders, by making the first column `position: sticky`. None of those
+elements exist in the redesign, so the rules went with them. The note is kept because the
+`pinned_columns` gap is still real if a table ever returns.
 
 ## Real prediction bundle (branch `gui/real-data`, 1 Oct 2026)
 
@@ -105,6 +81,28 @@ seconds. Nothing here is close to the 50 MB file size GitHub warns about.
   that layout is reused.
 - The probes in `scripts/ui_probes/` target the FIFA redesign hooks and do not run against
   this app; screenshots here were taken with an ad-hoc Playwright script.
+
+## Gradio internals the redesign depends on
+
+These selectors are Gradio's own class names, not ours, so an upgrade can change them
+with no error. Recheck each after any Gradio bump.
+
+| Selector in `app/style.css` | What it does | How it fails |
+| --- | --- | --- |
+| `.pvf-chips .wrap`, `.pvf-chips label` | Turns the sort Radio into a chip row | Chips fall back to a stacked radio list |
+| `.pvf-chips > span.svelte-1gfkn6j`, `.block-title` | Hides the form label above the chips | A stray "Sort by" label reappears |
+| `.wrap.default`, `div[data-testid="status-tracker"]` | Darkens the loading indicator | A white flash on every screen change |
+| `.gradio-container footer` | Panels Gradio's own footer over the pitch | Footer links drop below 4.5:1 at tall windows |
+| `div.modebar-container` (Plotly) | Hides the chart toolbar on phones | Untappable icons return on small screens |
+
+The spike also found that `gr.Navbar(visible=False)` does not hide the multipage navbar in
+6.28. The app is single page now, so that is not used, but it is worth knowing.
+
+Rerun the probes after an upgrade, especially the contrast sweep across window heights:
+
+```powershell
+& $py scripts/ui_probes/contrast.py --space --sizes 1366x700,1366x1200
+```
 
 ## Redesign rules (FIFA style, branch `gui/fifa`)
 
@@ -191,7 +189,8 @@ $py = "$env:USERPROFILE\.venvs\pvf-probes\Scripts\python.exe"
 & $py scripts\ui_probes\compare.py
 ```
 
-Status on 26 Sep 2026: not yet verified. Node was not found on the development machine
-(not on `PATH`, not in the installed programs list). Without Node, a run with
-`GRADIO_SSR_MODE=true` printed nothing for 150 seconds instead of its URL. Until this is
-verified, the preview Space `jackstev/pvf-preview` is the reference for styling.
+Status on 2 Oct 2026: Node.js 24.19.0 is installed, so the SSR run is available, but the
+comparison against the preview Space has not been run yet. Until it has, the preview Space
+`jackstev/pvf-preview` stays the reference for styling, and a CSS change should be checked
+there rather than only locally. Note that `app/app.py` reads `style.css` once at import,
+so a local run must be restarted before a CSS edit shows.

@@ -25,6 +25,17 @@
 
 /* Screens stack their own content; only one is ever visible */
 #pvf .pvf-screen { gap: 18px !important; }
+/* A short fade makes a screen change read as a change, not a flicker */
+#pvf .pvf-screen { animation: pvf-fade 160ms ease-out both; }
+@keyframes pvf-fade {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #pvf .pvf-screen { animation: none; }
+  #pvf button.pvf-card, #pvf button.pvf-big-btn, #pvf .pvf-chips label { transition: none; }
+  #pvf button.pvf-card:hover, #pvf button.pvf-big-btn:active { transform: none; }
+}
 
 /* Big bold buttons on top of size="lg" */
 #pvf button.pvf-big-btn {
@@ -34,6 +45,10 @@
 }
 #pvf button.pvf-big-btn.primary { box-shadow: 0 6px 24px rgba(212, 167, 44, 0.22); }
 #pvf button.pvf-big-btn:focus-visible { outline: 3px solid #F2F3EC; outline-offset: 3px; }
+#pvf button.pvf-big-btn { transition: transform 100ms ease, filter 120ms ease; }
+#pvf button.pvf-big-btn:hover { filter: brightness(1.08); }
+/* Pressed state, so a tap on a phone is acknowledged without a hover */
+#pvf button.pvf-big-btn:active { transform: translateY(2px); filter: brightness(0.94); }
 #pvf .pvf-actions { gap: 14px !important; }
 
 /* Home hero */
@@ -83,8 +98,18 @@
   background: linear-gradient(160deg, #173A2A 0%, #0C1D15 70%) !important;
   border: 1px solid #2C4D3D !important; border-radius: 10px !important;
 }
-#pvf button.pvf-card:hover { border-color: #D4A72C !important; }
-#pvf button.pvf-card:focus-visible { outline: 3px solid #D4A72C; outline-offset: 2px; }
+#pvf button.pvf-card {
+  transition: transform 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+#pvf button.pvf-card:hover {
+  border-color: #D4A72C !important; transform: translateY(-3px);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.45);
+}
+#pvf button.pvf-card:active { transform: translateY(-1px); }
+/* Keyboard users get the same gold ring the mouse gets as a border */
+#pvf button.pvf-card:focus-visible {
+  outline: 3px solid #D4A72C; outline-offset: 3px; border-color: #D4A72C !important;
+}
 #pvf .pc-top { display: flex; justify-content: space-between; align-items: center; }
 #pvf .pc-pos {
   color: #D4A72C; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700;
@@ -115,17 +140,31 @@
 #pvf .pvf-tile-row { gap: 12px !important; }
 #pvf .pvf-age { align-items: flex-end !important; }
 
-/* Sort chips read as a row of buttons, not a stack of radios */
+/* Sort chips are a bare row: no block border, no form label */
+#pvf .block.pvf-chips {
+  background: transparent !important; border: 0 !important; padding: 0 !important;
+  box-shadow: none !important;
+}
+#pvf .pvf-chips > span.svelte-1gfkn6j, #pvf .pvf-chips > .block-title { display: none; }
 #pvf .pvf-chips .wrap { display: flex !important; flex-wrap: wrap; gap: 8px !important; }
 #pvf .pvf-chips label {
   border: 1px solid #2C4D3D !important; border-radius: 999px !important;
-  padding: 8px 16px !important; background: #12291E !important; min-height: 44px;
+  padding: 8px 18px !important; background: #12291E !important; min-height: 44px;
+  color: #B5C2BA !important; font-weight: 600; transition: background 120ms ease,
+  border-color 120ms ease, color 120ms ease;
 }
 #pvf .pvf-chips label input { position: absolute; opacity: 0; }
+#pvf .pvf-chips label:hover { border-color: #4C7A62 !important; }
+/* The chosen chip reads as chosen without relying on the hidden radio dot */
 #pvf .pvf-chips label:has(input:checked) {
-  background: #1E4A33 !important; border-color: #D4A72C !important;
+  background: #D4A72C !important; border-color: #D4A72C !important;
+  color: #0A140E !important; font-weight: 700;
 }
-#pvf .pvf-chips label:focus-within { outline: 3px solid #D4A72C; outline-offset: 2px; }
+#pvf .pvf-chips label:focus-within { outline: 3px solid #F2F3EC; outline-offset: 2px; }
+/* The helper line sits under the chips, not inside a labelled block */
+#pvf .pvf-chips .info, #pvf .pvf-chips div[data-testid="block-info"] {
+  color: #B5C2BA !important; font-size: 0.85rem; margin: 0 0 8px !important;
+}
 
 #pvf .pvf-count .prose p { color: #F2F3EC; margin: 0; }
 #pvf .pvf-note .prose p { color: #B5C2BA; font-size: 0.85rem; margin: 0; }
@@ -201,6 +240,12 @@
   background: #0C1D15; border: 1px solid #2C4D3D; border-radius: 10px;
   padding: 14px 18px !important;
 }
+/* Every panel over the pitch is opaque, so contrast never depends on the backdrop */
+#pvf .pvf-tile, #pvf .pvf-panel, #pvf .pvf-why-panel, #pvf .pvf-how,
+#pvf .block.pvf-card-panel, #pvf .block.pvf-explain { background: #0C1D15 !important; }
+#pvf .prose header.pvf-hero, #pvf .prose header.pvf-player-head {
+  background: #081710 !important;
+}
 #pvf .pvf-panel .prose * { color: #F2F3EC; }
 #pvf .pvf-panel .prose table { width: 100%; }
 #pvf .pvf-panel .prose th, #pvf .pvf-panel .prose td { padding: 6px 8px; }
@@ -245,6 +290,64 @@ body, gradio-app, .gradio-container { background: transparent !important; }
 body { min-height: 100vh; }
 /* The hidden target for the browser Back hook must stay in the DOM */
 button.pvf-pop, .pvf-pop { display: none !important; }
+/* Pitch floor: a lit plane of mowed stripes and chalk lines, CSS only.
+   It is fixed and sits behind everything, so page height never moves it. */
+body::before {
+  content: ""; position: fixed; z-index: -2; pointer-events: none;
+  left: -45vw; right: -45vw; bottom: 0; height: 150vh;
+  background:
+    /* Halfway line across the plane */
+    linear-gradient(to bottom, transparent calc(62% - 2px),
+      rgba(242, 243, 236, 0.20) calc(62% - 2px), rgba(242, 243, 236, 0.20) calc(62% + 2px),
+      transparent calc(62% + 2px)),
+    /* Centre spot and the circle around it */
+    radial-gradient(circle at 50% 62%, rgba(242, 243, 236, 0.22) 0 5px,
+      transparent 6px 15vh, rgba(242, 243, 236, 0.18) calc(15vh + 1px) calc(15vh + 4px),
+      transparent calc(15vh + 5px)),
+    /* Penalty box at the near end */
+    linear-gradient(to right, transparent 36%, rgba(242, 243, 236, 0.14) 36% calc(36% + 3px),
+      transparent calc(36% + 3px) calc(64% - 3px),
+      rgba(242, 243, 236, 0.14) calc(64% - 3px) 64%, transparent 64%)
+      top / 100% 20% no-repeat,
+    /* Mowed stripes, two greens alternating */
+    repeating-linear-gradient(90deg, #1C5A3B 0 5%, #14452B 5% 10%);
+  transform: perspective(72vh) rotateX(64deg);
+  transform-origin: 50% 100%;
+  /* Fade to nothing at the far edge, so it never reaches the content */
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%,
+    rgba(0, 0, 0, 0.42) 45%, rgba(0, 0, 0, 0.88) 100%);
+  mask-image: linear-gradient(to bottom, transparent 0%,
+    rgba(0, 0, 0, 0.42) 45%, rgba(0, 0, 0, 0.88) 100%);
+}
+/* A soft floodlight glow just above the pitch */
+body::after {
+  content: ""; position: fixed; z-index: -2; pointer-events: none;
+  left: 0; right: 0; bottom: 0; height: 62vh;
+  background: radial-gradient(ellipse 60% 55% at 50% 100%,
+    rgba(111, 214, 154, 0.14), transparent 70%);
+}
+@media (prefers-reduced-motion: reduce) {
+  body::before, body::after { transition: none; }
+}
+
+/* Gradio's loader is white by default, which flashes on a near black page */
+.gradio-container .wrap.default,
+.gradio-container div[data-testid="status-tracker"] {
+  background: rgba(5, 16, 10, 0.72) !important; color: #B5C2BA !important;
+}
+.gradio-container .wrap.default svg, .gradio-container .progress-text {
+  color: #D4A72C !important; fill: #D4A72C !important;
+}
+
+/* Gradio's native footer sits straight on the pitch, which brightens as the
+   window grows, so give it its own solid strip rather than trusting the backdrop */
+.gradio-container footer {
+  background: #0C1D15 !important; border-top: 1px solid #2C4D3D;
+  border-radius: 10px; padding: 10px 16px !important; margin-top: 10px;
+}
+.gradio-container footer a, .gradio-container footer button,
+.gradio-container footer .divider { color: #B5C2BA !important; }
+
 /* Gradio's own footer sits on the dark page, so give it a panel to stand on */
 .gradio-container .pvf-foot-dark {
   background: #0C1D15; border-top: 1px solid #2C4D3D; border-radius: 10px;

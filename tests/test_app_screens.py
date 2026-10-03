@@ -66,9 +66,9 @@ def parts(app, outputs):
 def player_parts(app, outputs):
     """The named pieces of an open_player_screen result."""
     n = len(app.SCREENS) + 1
-    panels_at = n + 5
+    panels_at = n + 6
     return {"hero": outputs[n], "chart": outputs[n + 1], "means": outputs[n + 2],
-            "sure": outputs[n + 3], "details": outputs[n + 4],
+            "sure": outputs[n + 3], "details": outputs[n + 4], "season": outputs[n + 5],
             "panels": outputs[panels_at:panels_at + len(app.PANELS)],
             "open": outputs[-2], "selected": outputs[-1]}
 
@@ -639,3 +639,71 @@ def test_chart_is_styled_for_the_dark_page(app):
     assert layout.hoverlabel.font.color == app.CHART_TEXT
     # The legend sits below the plot, so the margin has to leave room for it
     assert layout.margin.b >= 48
+
+
+# The three horizon fallback. The mock fixture carries horizons 1, 2 and 3, so this
+# file's app fixture is itself the multi horizon case; the shipped bundle has one.
+
+def seasons_block(app):
+    """The Markdown that holds the per season table, if the layout built one."""
+    found = [b for b in app.demo.blocks.values()
+             if getattr(b, "elem_classes", None) and "pvf-seasons" in b.elem_classes]
+    assert len(found) == 1, "the season table should exist exactly once"
+    return found[0]
+
+
+def test_fixture_really_has_three_horizons(app):
+    """Guards the tests below: they mean nothing against a one horizon bundle."""
+    assert len(app.HORIZONS) == 3
+    assert sorted(app.HORIZONS.values()) == [1, 2, 3]
+
+
+def test_season_table_is_shown_for_a_multi_horizon_bundle(app):
+    assert seasons_block(app).visible is True
+
+
+def test_season_table_lists_every_horizon(app):
+    pid = int(app.PLAYERS["player_id"].iloc[0])
+    got = player_parts(app, app.open_player_screen(pid, app.DEFAULT_HORIZON))
+    text = got["season"]
+    assert text, "a three horizon bundle should fill the season table"
+    assert "Every season" in text
+    forecasts = app.FORECASTS_BY_ID[pid]
+    # One row per horizon, each carrying that horizon's own numbers
+    for row in forecasts.itertuples():
+        assert app.fmt_eur(row.p50_eur) in text
+        assert app.fmt_range(row.p10_eur, row.p90_eur) in text
+
+
+def test_season_table_marks_the_chosen_horizon(app):
+    pid = int(app.PLAYERS["player_id"].iloc[0])
+    for label, h in app.HORIZONS.items():
+        got = player_parts(app, app.open_player_screen(pid, label))
+        target = app.FORECASTS_BY_ID[pid].set_index("horizon").loc[h, "target_date"]
+        # The arrow marks the row for the season the user chose
+        assert f"▸ **{target:%b %Y}**" in got["season"]
+
+
+def test_season_table_hidden_when_the_bundle_has_one_horizon(app, monkeypatch):
+    """With a single season the table would only repeat the hero, so it goes."""
+    monkeypatch.setattr(app, "HORIZONS", {app.DEFAULT_HORIZON: app.DEFAULT_H})
+    assert app.season_card(int(app.PLAYERS["player_id"].iloc[0]), app.DEFAULT_H) == ""
+
+
+def test_look_ahead_control_is_offered_for_three_horizons(app):
+    radios = [c for c in app.demo.blocks.values()
+              if isinstance(c, gr.Radio) and c.label == "Look ahead"]
+    assert len(radios) == 1 and radios[0].visible is True
+    assert len(radios[0].choices) == 3
+
+
+def test_changing_horizon_changes_the_hero_numbers(app):
+    """The hero follows the chosen season, not just the default one."""
+    pid = int(app.PLAYERS["player_id"].iloc[0])
+    heroes = {label: player_parts(app, app.open_player_screen(pid, label))["hero"]
+              for label in app.HORIZONS}
+    assert len(set(heroes.values())) == len(app.HORIZONS), "every horizon should differ"
+    for label, h in app.HORIZONS.items():
+        row = app.PLAYERS_BY_ID.loc[pid]
+        assert app.fmt_eur(row[f"p50_{h}"]) in heroes[label]
+        assert app.seasons_text(h) in heroes[label]
