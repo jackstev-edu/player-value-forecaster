@@ -147,6 +147,10 @@
 }
 /* The only direct span child is the "Sort by" label; the info line stays */
 #pvf .pvf-chips > span { display: none !important; }
+/* Gradio wraps the Radio in div.form, which paints its own fill */
+#pvf div.form:has(> .pvf-chips) {
+  background: transparent !important; border: 0 !important; box-shadow: none !important;
+}
 #pvf .pvf-chips .wrap { display: flex !important; flex-wrap: wrap; gap: 8px !important; }
 #pvf .pvf-chips label {
   border: 1px solid #2C4D3D !important; border-radius: 999px !important;
