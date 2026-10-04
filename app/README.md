@@ -21,13 +21,28 @@ transfer or betting decisions.
 
 ## How to use it
 
-1. **Find a player.** Type part of a name, or open "More filters" for league, country,
-   nationality, position and age. Accents are optional: typing `mbappe` finds Mbappé.
-   Or click one of the four examples under the filters.
-2. **Select a row** in the table to open that player.
-3. **Read the chart.** The solid line is the player's value history, the dashed line is
-   the forecast, and the shaded band is the likely range.
-4. **Sort** by current value, biggest predicted rise or fall, or most uncertain forecast.
+The app has four screens. Use the **Back** button on each one to return, or your
+browser's own Back button, which steps back through the screens the same way.
+
+1. **Home.** Four featured players are picked from the data by fixed rules each time the
+   app starts, under labels that follow what the model actually predicts. Click one to
+   open it, or press **SEARCH PLAYERS** to filter. **HOW IT WORKS** explains the model
+   and its limits.
+2. **Search.** Choose any mix of position, league, nation, league country and age, or
+   type part of a name. Accents are optional: typing `mbappe` finds Mbappé. Nothing runs
+   until you press **SEARCH**, and **CLEAR** resets every filter.
+3. **Results.** Players appear as cards showing value, predicted change and the likely
+   range, 24 at a time, with **Load more** for the next 24. The sort chips reorder them
+   by value, biggest predicted rise or fall, or most uncertain. Click a card, or press
+   Enter on it, to open that player.
+4. **Player.** The hero card carries the current value and the next-season estimate side
+   by side, with a bar showing the likely range, where the middle estimate sits and where
+   today's value sits. Below it the chart shows the value history and the forecast band.
+   Three buttons open **What this means**, **How sure is it** and **Player details**, one
+   at a time.
+
+Going back to Results keeps your filters, your sort, every card you loaded and your place
+on the page.
 
 ## What the numbers mean
 

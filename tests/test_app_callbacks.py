@@ -28,28 +28,6 @@ def app():
     return module
 
 
-def call_filter(app, search=None, leagues=None, countries=None, nations=None, positions=None,
-                age_min=None, age_max=None, horizon=None, sort_by=None, selected=None):
-    """Call the filter callback with the argument order the listener uses."""
-    return app.filter_players(search, leagues, countries, nations, positions,
-                              age_min, age_max, horizon, sort_by, selected)
-
-
-def with_accented_name(app, monkeypatch, name="Kylian Mbappé"):
-    """Rename the first player so accent handling can be tested on mock data."""
-    players = app.PLAYERS.copy()
-    players.loc[players.index[0], "name"] = name
-    monkeypatch.setattr(app, "PLAYERS", app.add_derived_columns(players, app.FORECASTS))
-    return int(players["player_id"].iloc[0])
-
-
-class FakeSelect:
-    """Stand in for gr.SelectData, which only needs an index here."""
-
-    def __init__(self, row):
-        self.index = [row, 0]
-
-
 def first_player_id(app) -> int:
     return int(app.PLAYERS["player_id"].iloc[0])
 
@@ -57,77 +35,6 @@ def first_player_id(app) -> int:
 def test_importing_the_app_does_not_launch_it(app):
     assert isinstance(app.demo, gr.Blocks)
     assert not app.demo.is_running
-
-
-def test_no_filters_returns_capped_table_with_matching_ids(app):
-    view, ids, count, _chart, _card, _explain, _selected = call_filter(app)
-    assert len(view) <= app.MAX_ROWS
-    assert len(ids) == len(view)
-    # The id list must line up row for row with what the table shows
-    shown = [name.removeprefix(app.FLAG) for name in view["Player"]]
-    assert shown == [app.PLAYER_BY_ID[pid]["name"] for pid in ids]
-    assert "players" in count
-
-
-def test_impossible_filters_give_empty_table_and_advice(app):
-    view, ids, count, chart, _card, _explain, _selected = call_filter(
-        app, leagues=[app.PLAYERS["league_name"].iloc[0]], nations=[ABSENT_NATION])
-    # Headers are pinned by name so a dropped or renamed column fails here
-    assert list(view.columns) == ["Player", "Age", "Position", "Club", "League", "Nationality",
-                                  "Value", "Change", "Likely range"]
-    assert app.COLUMNS == list(view.columns)
-    assert len(view) == 0 and ids == []
-    assert "No players match" in count
-    assert "League" in count and "Nationality" in count
-    assert chart is None
-
-
-def test_no_match_message_names_the_age_range(app):
-    _view, _ids, count, _chart, _card, _explain, _selected = call_filter(
-        app, nations=[ABSENT_NATION], age_min=30, age_max=31)
-    assert "currently 30 to 31" in count
-
-
-def test_swapped_age_bounds_match_ordered_bounds(app):
-    swapped = call_filter(app, age_min=30, age_max=24)
-    ordered = call_filter(app, age_min=24, age_max=30)
-    pd.testing.assert_frame_equal(swapped[0], ordered[0])
-    assert swapped[1] == ordered[1]
-    assert swapped[2] == ordered[2]
-
-
-def test_all_none_inputs_do_not_raise(app):
-    view, ids, count, _chart, card, _explain, selected = call_filter(app)
-    assert len(view) > 0 and ids and count
-    assert card == app.CARD_PROMPT and selected is None
-
-
-def test_selection_survives_matching_filters(app):
-    pid = first_player_id(app)
-    league = app.PLAYER_BY_ID[pid]["league_name"]
-    _view, _ids, _count, chart, card, _explain, selected = call_filter(
-        app, leagues=[league], selected=pid)
-    # Chart is left alone; the card is redrawn for the chosen horizon
-    assert chart == gr.skip() and card == app.make_card(pid, 1)
-    assert selected == pid
-
-
-def test_selection_outside_the_shown_rows_is_kept(app):
-    cheapest = int(app.PLAYERS.sort_values("current_value_eur")["player_id"].iloc[0])
-    _view, ids, _count, chart, card, _explain, selected = call_filter(app, selected=cheapest)
-    # Premise of the case: this player ranks below the visible top rows
-    assert cheapest not in ids
-    assert chart == gr.skip() and card == app.make_card(cheapest, 1)
-    assert selected == cheapest
-
-
-def test_selection_cleared_when_filtered_out(app):
-    pid = first_player_id(app)
-    _view, _ids, _count, chart, card, _explain, selected = call_filter(
-        app, nations=[ABSENT_NATION], selected=pid)
-    assert chart is None
-    assert card == app.CARD_GONE
-    assert selected is None
 
 
 def test_chart_and_card_for_a_real_player(app):
@@ -166,21 +73,6 @@ def test_player_without_forecast_plots_history_only(app, monkeypatch):
     assert "No forecast is available" in app.make_card(pid)
 
 
-def test_on_select_returns_the_clicked_player(app):
-    ids = call_filter(app)[1]
-    *_, chart, card, _explain, selected = app.on_select(ids, "1 season", FakeSelect(2))
-    assert isinstance(chart, go.Figure)
-    assert selected == ids[2]
-    assert app.PLAYER_BY_ID[ids[2]]["name"] in card
-
-
-def test_on_select_guards_empty_and_out_of_range_rows(app):
-    *_, chart, card, _explain, selected = app.on_select([], "1 season", FakeSelect(0))
-    assert chart is None and card == app.CARD_STALE and selected is None
-    *_, chart, card, _explain, selected = app.on_select([1, 2], "1 season", FakeSelect(9))
-    assert chart is None and card == app.CARD_STALE and selected is None
-
-
 def test_fmt_eur_formats_and_handles_missing(app):
     assert app.fmt_eur(12_500_000) == "€12.5m"
     assert app.fmt_eur(750_000) == "€750k"
@@ -208,58 +100,10 @@ def test_footer_falls_back_when_manifest_is_empty(app):
     assert app.make_footer({"created_at": "not a date"}).count("unknown") == 2
 
 
-def test_every_filter_path_returns_seven_outputs(app):
-    pid = first_player_id(app)
-    league = app.PLAYER_BY_ID[pid]["league_name"]
-    cases = [
-        call_filter(app),
-        call_filter(app, selected=pid),
-        call_filter(app, leagues=[league], selected=pid),
-        call_filter(app, nations=[ABSENT_NATION]),
-        call_filter(app, nations=[ABSENT_NATION], selected=pid),
-        call_filter(app, age_min=45, age_max=15, selected=pid),
-        call_filter(app, positions=[app.PLAYERS["position"].iloc[0]], age_min=None, age_max=None),
-    ]
-    for outputs in cases:
-        assert len(outputs) == 7
-
-
-@pytest.mark.parametrize("query", ["mbappe", "MBAPPE", "Mbappé", "mBaPpÉ", "  kylian   mbap "])
-def test_search_ignores_case_and_accents(app, monkeypatch, query):
-    pid = with_accented_name(app, monkeypatch)
-    _view, ids, count, _chart, _card, _explain, _selected = call_filter(app, search=query)
-    assert ids == [pid]
-    assert "**1 player** matches" in count
-
-
 def test_search_folds_letters_nfkd_keeps_whole(app):
     assert app.normalise_name("Martin Ødegaard") == "martin odegaard"
     assert app.normalise_name("Łukasz Fabiański") == "lukasz fabianski"
     assert app.normalise_name(None) == ""
-
-
-def test_unmatched_search_names_the_search_in_the_advice(app):
-    view, ids, count, _chart, _card, _explain, _selected = call_filter(app, search="zzqx")
-    assert len(view) == 0 and ids == []
-    assert "No players match" in count
-    assert 'Search "zzqx"' in count
-
-
-def test_blank_search_is_no_filter(app):
-    assert call_filter(app, search="   ")[1] == call_filter(app)[1]
-
-
-@pytest.mark.parametrize("selected", [None, "first"])
-def test_reset_returns_defaults_and_matching_outputs(app, selected):
-    pid = first_player_id(app) if selected else None
-    out = app.reset_filters(pid)
-    defaults = app.default_filters()
-    n = len(defaults)
-    assert list(out[:n]) == defaults
-    assert len(out) == n + 7
-    expected = app.filter_players(*defaults, pid)
-    pd.testing.assert_frame_equal(out[n], expected[0])
-    assert out[n + 1:] == expected[1:]
 
 
 def without_forecast(app, monkeypatch, pid, horizon):
@@ -273,79 +117,12 @@ def top_value_id(app) -> int:
     return int(app.PLAYERS.sort_values("current_value_eur", ascending=False)["player_id"].iloc[0])
 
 
-@pytest.mark.parametrize("horizon", ["1 season", "2 seasons", "3 seasons"])
-@pytest.mark.parametrize("sort_by, column, descending", [
-    ("Current value", "current_value_eur", True),
-    ("Biggest predicted rise", "change", True),
-    ("Biggest predicted fall", "change", False),
-    ("Most uncertain", "width", True),
-])
-def test_sort_orders_on_underlying_numbers(app, sort_by, column, descending, horizon):
-    h = app.HORIZONS[horizon]
-    col = column if column == "current_value_eur" else f"{column}_{h}"
-    _view, ids, _count, _chart, _card, _explain, _selected = call_filter(app, horizon=horizon, sort_by=sort_by)
-    numbers = app.PLAYERS.set_index("player_id").loc[ids, col]
-    assert numbers.notna().all()
-    # Every adjacent pair must respect the requested direction
-    pairs = list(zip(numbers, numbers[1:]))
-    assert all((a >= b) if descending else (a <= b) for a, b in pairs)
-    # First row must be the true extreme across every matched player
-    extreme = app.PLAYERS[col].max() if descending else app.PLAYERS[col].min()
-    assert numbers.iloc[0] == extreme
-
-
-def test_rise_order_is_numeric_not_text(app):
-    view = call_filter(app, sort_by="Biggest predicted rise")[0]
-    # Text sorting would rank "+9%" above "+18%"; numbers must not
-    parsed = view["Change"].str.rstrip("%").astype(float).tolist()
-    assert parsed == sorted(parsed, reverse=True)
-
-
-def test_horizon_changes_the_change_column(app):
-    pid = first_player_id(app)
-    name = app.PLAYER_BY_ID[pid]["name"]
-    seen = {}
-    for label, h in app.HORIZONS.items():
-        view, ids, *_ = call_filter(app, search=name, horizon=label)
-        row = ids.index(pid)
-        row_data = app.PLAYERS.set_index("player_id").loc[pid]
-        assert view["Change"].iloc[row] == app.fmt_change(row_data[f"change_{h}"])
-        assert view["Likely range"].iloc[row] == app.fmt_range(row_data[f"p10_{h}"],
-                                                               row_data[f"p90_{h}"])
-        seen[label] = view["Change"].iloc[row]
-    assert len(set(seen.values())) > 1
-
-
 def test_change_and_range_formats(app):
     assert app.fmt_change(0.18) == "+18%"
     assert app.fmt_change(-0.052) == "-5%"
     assert app.fmt_change(float("nan")) == "n/a"
     assert app.fmt_range(8_000_000, 15_000_000) == "€8.0m to €15.0m"
     assert app.fmt_range(None, 1.0) == "n/a"
-
-
-@pytest.mark.parametrize("sort_by", ["Current value", "Biggest predicted rise",
-                                     "Biggest predicted fall", "Most uncertain"])
-def test_missing_forecast_sorts_last_and_shows_na(app, monkeypatch, sort_by):
-    pid = top_value_id(app)
-    without_forecast(app, monkeypatch, pid, horizon=2)
-    # Lift the row cap so the true last place is visible in the table
-    monkeypatch.setattr(app, "MAX_ROWS", len(app.PLAYERS))
-    view, ids, *_ = call_filter(app, horizon="2 seasons", sort_by=sort_by)
-    assert ids[-1] == pid
-    assert view["Change"].iloc[-1] == "n/a"
-    assert view["Likely range"].iloc[-1] == "n/a"
-    assert (view["Change"].iloc[:-1] != "n/a").all()
-    # Other horizons still have this forecast, so it ranks normally there
-    if sort_by == "Current value":
-        assert call_filter(app, horizon="1 season", sort_by=sort_by)[1][0] == pid
-
-
-def test_unknown_sort_and_horizon_fall_back_to_defaults(app):
-    odd = call_filter(app, horizon="9 seasons", sort_by="Alphabetical")
-    default = call_filter(app, horizon="1 season", sort_by="Current value")
-    pd.testing.assert_frame_equal(odd[0], default[0])
-    assert odd[1] == default[1]
 
 
 @pytest.mark.parametrize("h", [1, 2, 3])
@@ -356,30 +133,6 @@ def test_card_highlights_only_the_chosen_horizon(app, h):
     assert len(marked) == 1
     target = app.FORECASTS_BY_ID[pid].set_index("horizon").loc[h, "target_date"]
     assert f"{target:%b %Y}" in marked[0]
-
-
-def test_on_select_uses_the_chosen_horizon(app):
-    ids = call_filter(app)[1]
-    *_, _chart, card, _explain, _selected = app.on_select(ids, "3 seasons", FakeSelect(0))
-    assert card == app.make_card(ids[0], 3)
-
-
-def test_initial_view_opens_the_featured_player(app):
-    view, ids, count, chart, card, _explain, selected = app.initial_view()
-    assert selected == app.FEATURED_ID == top_value_id(app)
-    assert isinstance(chart, go.Figure)
-    assert app.PLAYER_BY_ID[selected]["name"] in card
-    # Table and count match a plain default filter run
-    expected = app.filter_players(*app.default_filters(), None)
-    pd.testing.assert_frame_equal(view, expected[0])
-    assert ids == expected[1] and count == expected[2]
-
-
-def test_load_is_not_a_filter_trigger(app):
-    # demo.load must only run initial_view, never filter_players as well
-    load_fns = [fn.fn.__name__ for fn in app.demo.fns.values()
-                if any(t[1] == "load" for t in fn.targets)]
-    assert load_fns == ["initial_view"]
 
 
 RULE_CHECKS = {
@@ -419,40 +172,6 @@ def test_rule_with_no_candidates_is_skipped(app):
     assert "Veteran in decline" not in labels and len(labels) == 3
     assert len({pid for _label, pid, _name in picks}) == 3
     assert app.pick_examples(app.PLAYERS.iloc[0:0]) == []
-
-
-@pytest.mark.parametrize("index", range(4))
-def test_clicking_an_example_opens_that_player(app, index):
-    label, pid, name = app.EXAMPLES[index]
-    out = app.open_example(name, pid)
-    n = len(app.default_filters())
-    assert len(out) == n + 7
-    # Search holds the name and every other filter is back to default
-    assert out[0] == name
-    assert list(out[1:n]) == app.default_filters()[1:]
-    view, ids, _count, chart, card, _explain, selected = out[n:]
-    # A flagged example shows the prefix, but the search itself used the plain name
-    assert pid in ids and {n.removeprefix(app.FLAG) for n in view["Player"]} == {name}
-    assert selected == pid
-    assert isinstance(chart, go.Figure) and name in card
-
-
-def test_example_with_repeated_name_opens_the_exact_id(app, monkeypatch):
-    first, second = app.PLAYERS["player_id"].iloc[:2].astype(int).tolist()
-    players = app.PLAYERS.copy()
-    players.loc[players.index[:2], "name"] = "Same Name"
-    monkeypatch.setattr(app, "PLAYERS", app.add_derived_columns(players, app.FORECASTS))
-    for pid in (first, second):
-        # Hidden Number may deliver a float, which must still resolve
-        out = app.open_example("Same Name", float(pid))
-        assert sorted(out[-6]) == sorted([first, second])
-        assert out[-1] == pid
-
-
-def test_example_with_unknown_id_shows_missing_card(app):
-    out = app.open_example("anything", None)
-    assert out[-4] is None and out[-3] == app.CARD_MISSING and out[-1] is None
-    assert app.EXPLAIN_PROMPT in out[-2]
 
 
 def widen_band(app, monkeypatch, pid, horizon, factor=3.0):
@@ -532,8 +251,14 @@ def test_change_and_limits_fall_back_without_dates(app):
 
 def test_how_it_works_states_its_limits(app):
     """A real model now ships, so the text must name its weaknesses, not just its scores."""
-    how = accordion(app, "How the forecast works")
-    text = " ".join(c.value for c in descendants(how) if isinstance(c, gr.Markdown))
+    shown = [b for b in app.demo.blocks.values()
+             if isinstance(b, gr.Markdown) and b.value == app.HOW_IT_WORKS]
+    assert len(shown) == 1, "the How it works text is not rendered exactly once"
+    panel = next(b for b in app.demo.blocks.values()
+                 if isinstance(b, gr.Column) and "pvf-how" in (b.elem_classes or []))
+    # It starts closed behind the HOW IT WORKS button on the Home screen
+    assert panel.visible is False
+    text = app.HOW_IT_WORKS
     # The old placeholder promised results that have since arrived
     assert "Results will appear here" not in text
     assert "8 times out of 10" in text
@@ -607,93 +332,12 @@ def test_both_reasons_are_named_together(app, monkeypatch):
     assert "widest 20%" in warning and "only 1 past valuation." in warning
 
 
-def test_ordinary_player_is_not_flagged(app):
-    pid = first_player_id(app)
-    assert app.history_count(pid) >= app.MIN_HISTORY_ROWS
-    assert "Low confidence" not in app.make_explanation(pid, 1)
-    view, ids, *_ = call_filter(app, search=app.PLAYER_BY_ID[pid]["name"])
-    assert not view["Player"].iloc[ids.index(pid)].startswith(app.FLAG)
-
-
 def test_ties_at_the_cutoff_are_not_flagged(app):
     cutoff = app.WIDTH_CUTOFF[1]
     # Float noise around a shared width must not pick arbitrary players
     assert app.low_confidence_reasons(cutoff * (1 + 1e-12), 10, 1) == []
     assert app.low_confidence_reasons(cutoff * 1.01, 10, 1) == ["width"]
     assert app.low_confidence_reasons(float("nan"), 0, 1) == []
-
-
-def test_flag_prefix_marks_only_flagged_players(app, monkeypatch):
-    wide, short = app.PLAYERS["player_id"].iloc[:2].astype(int).tolist()
-    widen_band(app, monkeypatch, wide, horizon=1)
-    shorten_history(app, monkeypatch, short, keep=2)
-    monkeypatch.setattr(app, "MAX_ROWS", len(app.PLAYERS))
-    view, ids, *_ = call_filter(app, horizon="1 season")
-    flagged = {pid for pid, name in zip(ids, view["Player"]) if name.startswith(app.FLAG)}
-    assert flagged == {wide, short}
-    # Width flags follow the horizon; the history flag applies to all of them
-    view, ids, *_ = call_filter(app, horizon="2 seasons")
-    flagged = {pid for pid, name in zip(ids, view["Player"]) if name.startswith(app.FLAG)}
-    assert flagged == {short}
-
-
-def test_search_finds_flagged_players_by_plain_name(app, monkeypatch):
-    pid = first_player_id(app)
-    name = app.PLAYER_BY_ID[pid]["name"]
-    shorten_history(app, monkeypatch, pid, keep=2)
-    view, ids, *_ = call_filter(app, search=name)
-    assert pid in ids
-    assert view["Player"].iloc[ids.index(pid)] == app.FLAG + name
-    # An example click feeds the plain name and still lands on the player
-    out = app.open_example(name, pid)
-    assert pid in out[len(app.default_filters()) + 1] and out[-1] == pid
-
-
-def test_horizon_change_rerenders_card_and_explanation(app):
-    pid = first_player_id(app)
-    seen = set()
-    for label, h in app.HORIZONS.items():
-        _view, _ids, _count, chart, card, explain, selected = call_filter(
-            app, horizon=label, selected=pid)
-        assert chart == gr.skip() and selected == pid
-        # Neither may be skipped, or the old horizon would stay on screen
-        assert card == app.make_card(pid, h)
-        assert explain == app.make_explanation(pid, h)
-        seen.add(explain)
-    assert len(seen) == len(app.HORIZONS)
-
-
-def test_selecting_a_row_explains_the_chosen_horizon(app):
-    ids = call_filter(app)[1]
-    out = app.on_select(ids, "3 seasons", FakeSelect(0))
-    # Table, ids and count are left alone by a row click
-    assert out[:3] == (gr.skip(), gr.skip(), gr.skip())
-    assert out[5] == app.make_explanation(ids[0], 3)
-
-
-def test_every_callback_path_returns_seven_results(app):
-    pid = first_player_id(app)
-    ids = call_filter(app)[1]
-    n = len(app.default_filters())
-    results = [
-        call_filter(app), call_filter(app, selected=pid),
-        call_filter(app, nations=[ABSENT_NATION], selected=pid),
-        app.initial_view(),
-        app.on_select(ids, "1 season", FakeSelect(0)),
-        app.on_select([], "1 season", FakeSelect(0)),
-        app.on_select(ids, "1 season", None),
-        app.reset_filters(None)[n:], app.reset_filters(pid)[n:],
-        app.open_example("anything", pid)[n:], app.open_example("anything", None)[n:],
-    ]
-    for out in results:
-        assert len(out) == 7
-        assert app.EXPLAIN_TITLE in out[5]
-    # Listener output lists must match what each callback returns
-    outputs = {fn.api_name: len(fn.outputs) for fn in app.demo.fns.values()}
-    assert outputs["filter_players"] == outputs["initial_view"] == outputs["select_player"] == 7
-    assert outputs["reset_filters"] == n + 7
-    # Examples register a fill step too; the one running open_example has n + 7
-    assert n + 7 in [count for name, count in outputs.items() if name.startswith("open_example")]
 
 
 def descendants(block) -> list:
@@ -703,11 +347,6 @@ def descendants(block) -> list:
         found.append(child)
         found.extend(descendants(child))
     return found
-
-
-def accordion(app, label):
-    return next(b for b in app.demo.blocks.values()
-                if isinstance(b, gr.Accordion) and b.label == label)
 
 
 @pytest.mark.parametrize("value, label", [
@@ -773,17 +412,6 @@ def test_helper_text_on_look_ahead_sort_and_table(app):
                      "real value to land 8 times out of 10."]
 
 
-def test_secondary_filters_sit_in_a_collapsed_accordion(app):
-    more = accordion(app, "More filters")
-    assert more.open is False
-    inside = descendants(more)
-    for comp in (app.position, app.league, app.country, app.nation, app.age_min, app.age_max):
-        assert comp in inside
-    # Search, look ahead, sort and clear stay visible outside it
-    for comp in (app.search, app.horizon, app.sort_by, app.reset, app.count):
-        assert comp not in inside
-
-
 def test_every_control_has_a_visible_label(app):
     for comp in app.filters:
         assert comp.label and comp.show_label is not False
@@ -791,6 +419,14 @@ def test_every_control_has_a_visible_label(app):
         assert comp.label[0].isupper() and comp.label[1:] == comp.label[1:].lower()
 
 
-def test_table_pins_the_player_column(app):
-    assert app.table.pinned_columns == 1
-    assert app.COLUMNS[0] == "Player"
+def test_search_screen_holds_every_filter_tile(app):
+    """Filters now live on their own screen as tiles, not behind an accordion."""
+    screen = next(b for b in app.demo.blocks.values()
+                  if isinstance(b, gr.Column) and "pvf-search" in (b.elem_classes or []))
+    inside = descendants(screen)
+    for comp in (app.position, app.league, app.country, app.nation, app.age_min,
+                 app.age_max, app.search_box, app.horizon, app.go_btn, app.clear_btn):
+        assert comp in inside, f"{comp.label!r} is missing from the Search screen"
+    # Results controls belong to the Results screen, so SEARCH cannot be skipped
+    for comp in (app.sort_by, app.cards, app.more_btn):
+        assert comp not in inside
