@@ -15,16 +15,24 @@ import probe_common as pc
 # Collects text nodes fully inside the viewport, with their own line boxes
 TEXT_JS = """() => {
   const out = [];
+  // A public Space carries a fixed Hugging Face badge; content scrolls under it,
+  // so text in that band is hidden by their chrome rather than shown on it
+  const chrome = document.querySelector('#huggingface-space-header');
+  const over = chrome ? chrome.getBoundingClientRect() : null;
+  const covered = (r) => over && r.left < over.right && r.right > over.left
+                       && r.top < over.bottom && r.bottom > over.top;
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
   for (let n = walker.nextNode(); n; n = walker.nextNode()) {
     const text = n.textContent.trim();
     const el = n.parentElement;
-    if (!text || !el || el.closest('svg, script, style, noscript')) continue;
+    // Hugging Face injects its own header on a public Space; it is not ours to style
+    if (!text || !el || el.closest('svg, script, style, noscript, #huggingface-space-header')) continue;
     if (!el.checkVisibility({opacityProperty: true, visibilityProperty: true})) continue;
     const cs = getComputedStyle(el);
     const range = document.createRange(); range.selectNodeContents(n);
     const rects = [...range.getClientRects()].filter(r => r.width > 1 && r.height > 1)
       .filter(r => r.top >= 0 && r.left >= 0 && r.bottom <= innerHeight && r.right <= innerWidth)
+      .filter(r => !covered(r))
       .map(r => [r.left, r.top, r.right, r.bottom]);
     if (!rects.length) continue;
     const cls = (typeof el.className === 'string' ? el.className : '').split(' ')
