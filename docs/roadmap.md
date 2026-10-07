@@ -72,6 +72,8 @@ Jack left numbered slots in `src/pvf/features/build_panel.py`; these fill them i
 | 16 | Export the prediction bundle | Yunus | done | `scripts/export_bundle.py`: 4,727 players, core model, `lgbm-core-v1` (#48). Known upward bias stated in the manifest. |
 | 17 | Report | | todo | Framed around the task 15 ablation (#47), with the backtest figure (#49) and the bias of #48 as limitations. |
 | 27 | Bring the live Space back up | Jack | blocked | Bundle and app are deployed and verified byte-for-byte on `jackstev/player-value-forecaster`, but the Space will not start: `cpu-basic` quota is `limit=0` on the free account and all six of Jack's Spaces are already paused, so there is nothing to free. Needs a Space deleted, the quota period to reset, or PRO. |
+| 27b | Space under Yunus's account instead | Yunus | wip | Same app, published with the rest of the package by `scripts/publish_hf.py`, which sidesteps Jack's quota. |
+| 28 | **Prototype package** (rubric) | Yunus | wip | Two model cards (LightGBM from scratch, Chronos off-the-shelf), dataset on the Hub with card and EDA, two Colab notebooks run end to end locally, README links. `hf/`, `notebooks/`, `scripts/{eval_chronos,build_hf_dataset,export_models,publish_hf}.py`. |
 
 ## Running alongside
 
@@ -79,7 +81,7 @@ Jack left numbered slots in `src/pvf/features/build_panel.py`; these fill them i
 | --- | --- | --- | --- | --- |
 | 18 | Sofascore ratings experiment | Yunus | todo | Download the Kaggle set, join on name + birth year to the top-5 subset, ablate. The result decides whether we invest in the full scrape (decision #8). |
 | 19 | **Manual dataset, 500+ rows** | Yunus, Jack | done | Contract start/end for the top 500 players, filled 2026-09-27, now the core dataset (#36). Original note: **Rubric requirement and currently blocking.** The only task here with no dependencies, so it can start immediately. Candidates in `docs/decisions.md`; the human-baseline-forecast option is strongest because it doubles as a benchmark for the report. |
-| 20 | Confirm the second model family | | todo | `chronos` is proposed in the config. Check it against the rubric. |
+| 20 | Confirm the second model family | Yunus | done | Chronos-Bolt, zero-shot (off-the-shelf), evaluated on the same folds plus 2,000 league players (#52). |
 | 21 | Deadline, deliverables, rubric questions | | todo | Parked 2026-09-19. The 500-vs-1000 sample discrepancy needs an instructor answer. |
 | 22 | Positional rank, the rest of slot 4 | Yunus | done | Rank, peer count and percentile against same-position players at the player's club and in his league, per anchor (#22). Uncovered a fourth silent trap: `players.position` uses the string "Missing" rather than null, which was producing rank-1-of-1 groups (#23). |
 

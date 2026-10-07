@@ -81,3 +81,12 @@ salimt. Player names and values identify real people and are used for coursework
 
 Design rationale and the class practices behind each feature:
 `docs/gui_design_rationale.md` in the project repository.
+
+## Links
+
+- Model card, this app's model (trained from scratch): https://huggingface.co/ypolatog/player-value-lgbm-core
+- Model card, the off-the-shelf comparison (Chronos-Bolt, zero-shot): https://huggingface.co/ypolatog/player-value-chronos-bolt
+- Dataset, 500 hand-collected contracts plus 500 augmented: https://huggingface.co/datasets/ypolatog/football-contracts-500
+- Code: https://github.com/jackstev-edu/player-value-forecaster
+- Notebooks: [dataset EDA](https://colab.research.google.com/github/jackstev-edu/player-value-forecaster/blob/main/notebooks/01_dataset_eda.ipynb) ·
+  [end to end](https://colab.research.google.com/github/jackstev-edu/player-value-forecaster/blob/main/notebooks/02_end_to_end.ipynb)

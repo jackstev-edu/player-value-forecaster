@@ -103,3 +103,11 @@ def test_calibrate_keeps_quantiles_ordered():
     model = _fit(_frame(400)).calibrate(_frame(200, seed=9))
     out = model.predict(_frame(300, seed=10))
     assert (out["q10"] <= out["q50"]).all() and (out["q50"] <= out["q90"]).all()
+
+
+def test_save_and_load_predict_identically(tmp_path):
+    train, test = _frame(400), _frame(80, seed=4)
+    model = _fit(train, _frame(100, seed=2)).calibrate(_frame(150, seed=5))
+    model.save(tmp_path)
+    loaded = QuantileGBM.load(tmp_path)
+    pd.testing.assert_frame_equal(loaded.predict(test), model.predict(test))

@@ -11,6 +11,9 @@ matplotlib>=3.8       # static report figures (scripts/backtest_players.py)
 gradio==6.28.0
 huggingface_hub>=0.23
 pytest>=8
-# Optional second model family, install when that work starts
-# chronos-forecasting
-# torch
+# Second model (off-the-shelf, scripts/eval_chronos.py); CPU torch is enough
+chronos-forecasting>=1.5
+torch>=2.2
+# Notebooks and the Hub dataset
+nbformat>=5.9
+nbclient>=0.10

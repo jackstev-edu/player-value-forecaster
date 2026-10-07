@@ -1,4 +1,7 @@
 """Trained-from-scratch model: LightGBM quantile regressors, one set per horizon."""
+import json
+from pathlib import Path
+
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
@@ -77,6 +80,29 @@ class QuantileGBM:
         # Separately trained quantiles can cross; sorting each row restores the order
         preds.sort(axis=1)
         return preds
+
+    def save(self, folder) -> None:
+        """One LightGBM text file per (horizon, quantile) plus `meta.json`, as published to the Hub."""
+        folder = Path(folder)
+        folder.mkdir(parents=True, exist_ok=True)
+        for (h, q), model in self.models_.items():
+            model.booster_.save_model(str(folder / f"h{h}_q{round(q * 100)}.txt"))
+        meta = {"horizons": self.horizons, "quantiles": self.quantiles, "seed": self.seed,
+                "features": self.features_, "categories": self.categories_,
+                "band_adjust": {str(h): a for h, a in self.band_adjust_.items()}}
+        (folder / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+
+    @classmethod
+    def load(cls, folder) -> "QuantileGBM":
+        """Rebuild a saved model; its boosters predict exactly as the fitted regressors did."""
+        folder = Path(folder)
+        meta = json.loads((folder / "meta.json").read_text(encoding="utf-8"))
+        model = cls(meta["horizons"], meta["quantiles"], seed=meta["seed"])
+        model.features_, model.categories_ = meta["features"], meta["categories"]
+        model.band_adjust_ = {int(h): a for h, a in meta["band_adjust"].items()}
+        model.models_ = {(h, q): lgb.Booster(model_file=str(folder / f"h{h}_q{round(q * 100)}.txt"))
+                         for h in model.horizons for q in model.quantiles}
+        return model
 
     def predict(self, X: pd.DataFrame) -> pd.DataFrame:
         if not self.models_:

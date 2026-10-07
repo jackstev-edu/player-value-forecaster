@@ -34,7 +34,7 @@ model:
   quantiles: [0.1, 0.5, 0.9]
   families:
     trained_from_scratch: lightgbm
-    off_the_shelf: chronos         # OPEN DECISION: second rubric model type
+    off_the_shelf: amazon/chronos-bolt-small   # zero-shot, decision #52
   # LightGBM settings sized for ~800 training rows per fold: shallow trees, slow learning,
   # early stopping on held-out training players (scripts/train_gbm.py)
   gbm:

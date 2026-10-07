@@ -1,7 +1,10 @@
 # Notebooks
 
-Exploration only. Anything reused moves into `src/pvf/`. Since the scope change (`docs/scope_change.md`), notebooks read `data/processed/samples.parquet`. Original suggestions from the Analysis Guide:
+Both open in Colab (badges in the top-level README) and read the published Hugging Face dataset, so they need no team Drive.
 
-1. `01_value_update_frequency.ipynb`
-2. `02_age_position_curve.ipynb`
-3. `03_survivorship.ipynb` (who disappears after 1, 2, 3 seasons)
+| Notebook | What it shows | Runtime |
+| --- | --- | --- |
+| `01_dataset_eda.ipynb` | The 500 hand-collected rows against the 500 augmented ones: separation checks, collection quality, the target and its survivor effect, what moves with it, missing values, one player's value history | under a minute, nothing to install |
+| `02_end_to_end.ipynb` | Clones this repo, cross-validates the from-scratch LightGBM against three baselines, runs the off-the-shelf Chronos-Bolt on the same rows, then loads the published model from the Hub to forecast a player you describe | about 5 minutes on CPU |
+
+To test them before publishing, set `PVF_LOCAL_DATASET` to `data/processed/hf_dataset` and `PVF_LOCAL_MODEL` to `data/processed/hf_models/lgbm-core`.
