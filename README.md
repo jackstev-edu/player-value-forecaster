@@ -10,7 +10,7 @@ Forecasts how a football player's Transfermarkt market value will move over the 
 
 | Part | Link | What it is |
 | --- | --- | --- |
-| **App** | [Space](https://huggingface.co/spaces/ypolatog/player-value-forecaster) | Search any of 4,727 league players and see next season's value with a likely range; featured examples on the home screen |
+| **App** | [Space](https://huggingface.co/spaces/jackstev/player-value-forecaster) | Search any of 4,727 league players and see next season's value with a likely range; featured examples on the home screen |
 | **Primary model** (trained from scratch) | [player-value-lgbm-core](https://huggingface.co/ypolatog/player-value-lgbm-core) | LightGBM quantile model on 4 features, conformally calibrated band. CV log MAE 0.608, 80% band coverage 0.79 |
 | **Secondary model** (off-the-shelf) | [player-value-chronos-bolt](https://huggingface.co/ypolatog/player-value-chronos-bolt) | Amazon Chronos-Bolt, zero-shot on each player's value history. The bias check on the primary model |
 | **Dataset** | [football-contracts-500](https://huggingface.co/datasets/ypolatog/football-contracts-500) | 500 hand-collected contracts plus 500 augmented rows in a separate split, with value histories, card and EDA |

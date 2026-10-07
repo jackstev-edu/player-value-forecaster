@@ -35,7 +35,7 @@ model-index:
 **Category: trained from scratch.** The primary model of CMU 24-679 Project 1 (Yunus Polatoglu
 and Jack Stevens), and the model behind the live app.
 
-- App: https://huggingface.co/spaces/{HF_USER}/player-value-forecaster
+- App: https://huggingface.co/spaces/jackstev/player-value-forecaster
 - Dataset: https://huggingface.co/datasets/{HF_USER}/football-contracts-500
 - Second model (off-the-shelf): https://huggingface.co/{HF_USER}/player-value-chronos-bolt
 - Code: https://github.com/jackstev-edu/player-value-forecaster

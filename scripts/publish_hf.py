@@ -37,8 +37,11 @@ def filled_copy(folder: Path, user: str, into: Path) -> Path:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("user", help="Hugging Face username that will own all four repos")
-    ap.add_argument("--only", nargs="+", choices=list(TARGETS), default=list(TARGETS))
+    ap.add_argument("user", help="Hugging Face username that will own the repos")
+    # The live app is Jack's Space (jackstev/player-value-forecaster): new free accounts cannot
+    # host Gradio Spaces, so "space" is opt-in
+    ap.add_argument("--only", nargs="+", choices=list(TARGETS),
+                    default=["dataset", "lgbm", "chronos"])
     ap.add_argument("--dry-run", action="store_true", help="stage and list files, upload nothing")
     args = ap.parse_args()
     api = HfApi()

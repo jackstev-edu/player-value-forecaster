@@ -43,7 +43,7 @@ Another **500 augmented rows** sit in their own split and never mix with the man
 
 - Primary model (trained from scratch): https://huggingface.co/{HF_USER}/player-value-lgbm-core
 - Secondary model (off-the-shelf): https://huggingface.co/{HF_USER}/player-value-chronos-bolt
-- App: https://huggingface.co/spaces/{HF_USER}/player-value-forecaster
+- App: https://huggingface.co/spaces/jackstev/player-value-forecaster
 - Code: https://github.com/jackstev-edu/player-value-forecaster
 - EDA notebook: https://colab.research.google.com/github/jackstev-edu/player-value-forecaster/blob/main/notebooks/01_dataset_eda.ipynb
 

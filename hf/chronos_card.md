@@ -23,7 +23,7 @@ from-scratch model.
 
 - Primary model (trained from scratch): https://huggingface.co/{HF_USER}/player-value-lgbm-core
 - Dataset: https://huggingface.co/datasets/{HF_USER}/football-contracts-500
-- App: https://huggingface.co/spaces/{HF_USER}/player-value-forecaster
+- App: https://huggingface.co/spaces/jackstev/player-value-forecaster
 - Code: https://github.com/jackstev-edu/player-value-forecaster (`src/pvf/models/foundation.py`, `scripts/eval_chronos.py`)
 - Notebook that runs this model in Colab: https://colab.research.google.com/github/jackstev-edu/player-value-forecaster/blob/main/notebooks/02_end_to_end.ipynb
 
