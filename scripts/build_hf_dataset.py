@@ -146,9 +146,11 @@ def main() -> None:
     (out / "samples").mkdir()
 
     contracts = pd.read_csv(paths["manual"] / "contracts.csv")[CONTRACT_COLUMNS]
-    contracts.to_csv(out / "contracts" / "manual.csv", index=False)
-    pd.read_csv(paths["synthetic"] / "contract_span_samples.csv").to_csv(
-        out / "contracts" / "augmented.csv", index=False)
+    augmented = pd.read_csv(paths["synthetic"] / "contract_span_samples.csv")
+    # CSV for spreadsheets; parquet for the Hub viewer, which reads one format per dataset
+    for name, frame in [("manual", contracts), ("augmented", augmented)]:
+        frame.to_csv(out / "contracts" / f"{name}.csv", index=False)
+        frame.to_parquet(out / "contracts" / f"{name}.parquet", index=False)
 
     samples = pd.read_parquet(paths["processed"] / "samples.parquet")
     samples.insert(3, "player_name", samples["player_id"].map(

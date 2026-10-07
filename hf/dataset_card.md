@@ -25,9 +25,9 @@ configs:
   - config_name: contracts
     data_files:
       - split: manual
-        path: contracts/manual.csv
+        path: contracts/manual.parquet
       - split: augmented
-        path: contracts/augmented.csv
+        path: contracts/augmented.parquet
   - config_name: value_history
     data_files:
       - split: train
